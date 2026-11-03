@@ -33,6 +33,8 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
 .rhead .t{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rhead .p{font-size:13px;color:var(--muted)}
 .rbody{flex:1;overflow-y:auto;padding:20px 18px;font-size:19px;line-height:1.75;max-width:680px;width:100%;margin:0 auto}
 .s{cursor:pointer;border-radius:4px;transition:background .2s}.s.on{background:var(--hl)}
+.s.pend{opacity:.55;font-style:italic}
+mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;padding:0 2px}
 .rfoot{background:var(--surface);border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px))}
 .fin{max-width:680px;margin:0 auto}
 .seek{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}.seek input{flex:1;accent-color:var(--accent)}
@@ -46,6 +48,8 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
 .pop.open{display:block}.pin2{max-width:680px;margin:0 auto}.ph{display:flex;justify-content:space-between;align-items:center}
 .pw{font-size:24px;font-weight:700}.pt1{font-size:21px;color:var(--accent);margin:6px 0;font-weight:600}
 .pex{font-size:15px;margin:8px 0;padding-left:10px;border-left:3px solid var(--line)}.pex i{display:block;color:var(--muted);font-style:normal}
+[hidden]{display:none!important}
+.ctl select#ml{max-width:220px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
@@ -84,11 +88,13 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
       <button class="small" id="next" aria-label="Kalimat berikutnya">⏭</button>
       <button class="small" id="pnext" aria-label="Bagian berikutnya">⏩</button>
     </div>
+    <div class="ctl" id="mlrow" hidden><label class="sub" for="ml">Bahasa utama</label><select id="ml" aria-label="Bahasa utama"></select></div>
     <div class="ctl"><select id="voice" aria-label="Suara"></select>
       <select id="rate" aria-label="Kecepatan"><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
     <div class="ctl"><select id="tl" aria-label="Bahasa terjemahan"><option value="id">Indonesia</option><option value="en">English</option><option value="ms">Melayu</option><option value="ar">العربية</option><option value="zh-CN">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="ru">Русский</option><option value="hi">हिन्दी</option><option value="pt">Português</option><option value="tr">Türkçe</option><option value="th">ไทย</option><option value="nl">Nederlands</option></select>
+      <select id="voice2" aria-label="Suara untuk terjemahan" title="Suara untuk bahasa terjemahan"></select>
       <button class="btn" id="trbtn">🌐 Terjemahkan</button><label class="sub"><input type="checkbox" id="trspeak"> Bacakan terjemahan</label></div>
-    <div class="sub" style="text-align:center;margin-top:6px">Ketuk kata untuk terjemahan. Durasi adalah perkiraan.</div>
+    <div class="sub" style="text-align:center;margin-top:6px">Ketuk kata untuk terjemahan. Bahasa utama = bahasa teks yang dibaca dan disuarakan (subtitle asli YouTube, atau terjemahan mesin untuk sumber lain). Baris abu-abu di bawahnya = terjemahan ke bahasa lain. Durasi adalah perkiraan.</div>
   </div></div>
 </div>
 <div class="pop" id="pop"><div class="pin2"><div class="ph"><div class="pw" id="pw"></div><button class="small" id="pclose" aria-label="Tutup">✕</button></div>
@@ -98,8 +104,9 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
 (function(){
 var KEY="suara-lib-v2",PK="suara-prog-v2",CH=2000,items=[],prog={},tab="all";
 var cur=null,sents=[],cum=[],chunks=[],ci=-1,pos=0,playing=false,tt;
+var spTok=0,mtTok=0,mBusy=false,mWait=null,mainCache={},hl=null,detTried={};
 var synth=window.speechSynthesis,$=function(i){return document.getElementById(i)};
-function toast(m,keep){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);if(!keep)tt=setTimeout(function(){t.style.display="none"},4000)}
+function toast(m,keep){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);if(!keep)tt=setTimeout(function(){t.style.display="none"},m.length>80?12000:4000)}
 var db;
 function idb(){return new Promise(function(res,rej){var r=indexedDB.open("suara",1);r.onupgradeneeded=function(){r.result.createObjectStore("items",{keyPath:"id"})};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})}
 function run(mode,fn){return new Promise(function(res,rej){var t=db.transaction("items",mode),q=fn(t.objectStore("items"));t.oncomplete=function(){res(q&&q.result)};t.onerror=t.onabort=function(){rej(t.error)}})}
@@ -126,53 +133,195 @@ function render(){
     box.appendChild(d);
   });
 }
-function add(title,text){
+function add(title,text,extra){
   text=(text||"").trim();if(!text)throw new Error("Tidak ada teks yang terbaca");
   var it={id:Date.now(),title:title,text:text,n:split(text).length,w:wc(text)};
+  if(extra)for(var k in extra)it[k]=extra[k];
   items.unshift(it);putItem(it);render();toast("Ditambahkan ke Library");
 }
-function remote(url,fallback,opts){
+function remote(url,fallback,opts,extra){
   toast("Memproses…",true);
-  return fetch(url,opts).then(function(r){return r.json()}).then(function(d){if(d.error)throw new Error(d.error);add(d.title||fallback,d.text)}).catch(function(e){toast("Gagal: "+e.message)});
+  return fetch(url,opts).then(function(r){return r.json()}).then(function(d){if(d.error)throw new Error(d.error);add(d.title||fallback,d.text,extra?extra(d):null)}).catch(function(e){toast("Gagal: "+e.message)});
 }
 
 /* ---------- Reader ---------- */
-function voices(){var v=synth?synth.getVoices().slice():[],s=$("voice"),old=s.value;s.innerHTML="";
-  v.sort(function(a,b){return (a.lang.indexOf("id")===0?0:1)-(b.lang.indexOf("id")===0?0:1)||a.name.localeCompare(b.name)});
+function vlang(c){c=(c||"").replace("_","-");var l=c.toLowerCase();if(/^zh-(hans|cn|sg)/.test(l))return "zh-CN";if(/^zh-(hant|tw|hk)/.test(l))return "zh-TW";return c}
+function pl(c){var p=(c||"").replace("_","-").toLowerCase().split("-")[0];return p==="in"?"id":p}
+function vMatch(v,c){return pl(v.lang)===pl(vlang(c))}
+function mainLang(){if(!cur)return "";var l=cur.main||cur.lang;return l&&l!=="und"?l:""}
+function sameLang(a,b){if(!a||!b)return false;var x=vlang(a).toLowerCase(),y=vlang(b).toLowerCase(),p=pl(x);return p===pl(y)&&(p!=="zh"||x===y||x==="zh"||y==="zh")}
+function mk(code,id,L,k){return code+"|"+id+"|"+L+"|"+k}
+function dsent(k){if(cur&&cur.main){var t=mainCache[mk(cur.main,cur.id,cur.lang||"",k)];if(t!=null)return t}return sents[k]}
+function vKey(L){return KEY+"-voice"+(L?"-"+pl(L):"")}
+function langName(c){try{return new Intl.DisplayNames(["id"],{type:"language"}).of(vlang(c))||c}catch(e){return c}}
+function voices(){var v=synth?synth.getVoices().slice():[],s=$("voice"),old=s.value,L=mainLang(),pref=L||"id";
+  v.sort(function(a,b){return (vMatch(a,pref)?0:1)-(vMatch(b,pref)?0:1)||a.name.localeCompare(b.name)});
+  s.innerHTML="";
   v.forEach(function(x){var o=document.createElement("option");o.value=x.name;o.textContent=x.name+" ("+x.lang+")";s.appendChild(o)});
-  try{var sv=localStorage.getItem(KEY+"-voice");if(sv)s.value=sv}catch(e){}if(old)s.value=old}
+  var has=function(n){return v.some(function(x){return x.name===n})},sv=null;
+  try{sv=localStorage.getItem(vKey(L))}catch(e){}
+  if(sv&&has(sv))s.value=sv;
+  else if(L){if(v.length&&vMatch(v[0],L))s.selectedIndex=0}
+  else if(old&&has(old))s.value=old}
+function mainVoice(){ // suara untuk bahasa utama: pilihan user jika cocok, kalau tidak suara pertama yang cocok
+  var vs=synth.getVoices(),L=mainLang(),v=vs.filter(function(x){return x.name===$("voice").value})[0];
+  if(L&&(!v||!vMatch(v,L)))v=vs.filter(function(x){return vMatch(x,L)})[0]||null;
+  return v||null}
+function vKey2(T){return KEY+"-voice2-"+pl(T)}
+function voices2(){var v=synth?synth.getVoices().slice():[],s=$("voice2"),T=$("tl").value;
+  v.sort(function(a,b){return (vMatch(a,T)?0:1)-(vMatch(b,T)?0:1)||a.name.localeCompare(b.name)});
+  s.innerHTML="";v.forEach(function(x){var o=document.createElement("option");o.value=x.name;o.textContent=x.name+" ("+x.lang+")";s.appendChild(o)});
+  var sv=null;try{sv=localStorage.getItem(vKey2(T))}catch(e){}
+  if(sv&&v.some(function(x){return x.name===sv}))s.value=sv;else if(v.length&&vMatch(v[0],T))s.selectedIndex=0}
+function voice2(){var vs=synth.getVoices(),T=$("tl").value,v=vs.filter(function(x){return x.name===$("voice2").value})[0];
+  if(!v||!vMatch(v,T))v=vs.filter(function(x){return vMatch(x,T)})[0]||null;return v||null}
 function fmt(sec){sec=Math.round(sec);var h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return (h?h+":"+(m<10?"0":""):"")+m+":"+(s<10?"0":"")+s}
 function updTime(v){var wpm=160*parseFloat($("rate").value);v=(v==null)?pos:v;
   $("tcur").textContent=fmt(cum[v]/wpm*60);$("ttot").textContent=fmt(cum[sents.length]/wpm*60)}
 function chunkOf(i){for(var c=0;c<chunks.length;c++)if(i>=chunks[c].s&&i<chunks[c].e)return c;return 0}
-function openReader(it){
-  stop();cur=it;sents=split(it.text);cum=[0];chunks=[];var st=0,w=0;
+function build(){
+  sents=split(cur.text);cum=[0];chunks=[];var st=0,w=0;
   sents.forEach(function(s,i){var n=wc(s);cum.push(cum[i]+n);w+=n;if(w>=CH||i===sents.length-1){chunks.push({s:st,e:i+1});st=i+1;w=0}});
-  var g=prog[it.id]||{};ci=-1;$("rt").textContent=it.title;$("seek").max=Math.max(sents.length-1,0);
-  $("reader").classList.add("open");setPos(g.done?0:Math.min(g.pos||0,sents.length-1));
+  ci=-1;$("seek").max=Math.max(sents.length-1,0)}
+function mlUI(){
+  var row=$("mlrow"),sel=$("ml");sel.innerHTML="";
+  if(!cur){row.hidden=true;return}
+  var seen=[];
+  function addTo(g,c,label){var o=document.createElement("option");o.value=c;o.textContent=label;g.appendChild(o);seen.push(c)}
+  function has(c){return seen.some(function(x){return sameLang(x,c)})}
+  var g1=document.createElement("optgroup");g1.label="Asli (bukan terjemahan)";
+  if(cur.yt&&cur.yt.langs&&cur.yt.langs.length)cur.yt.langs.forEach(function(c){addTo(g1,c,langName(c)+" ("+c+")")});
+  else if(cur.lang&&cur.lang!=="und")addTo(g1,cur.lang,langName(cur.lang)+" ("+cur.lang+")");
+  else{var o0=document.createElement("option");o0.value="";o0.textContent="Bahasa teks belum terdeteksi";g1.appendChild(o0)}
+  sel.appendChild(g1);
+  var g2=document.createElement("optgroup");g2.label="Terjemahan mesin";
+  [].forEach.call($("tl").options,function(op){if(!has(op.value))addTo(g2,op.value,op.textContent)});
+  sel.appendChild(g2);
+  sel.value=cur.main||(cur.lang&&cur.lang!=="und"?cur.lang:"");row.hidden=false}
+function detectLang(it){
+  if((it.lang&&it.lang!=="und")||detTried[it.id]||!it.text)return;detTried[it.id]=1;
+  var t=it.text,off=Math.min(Math.floor(t.length*.1),3000);
+  fetch("/api/detect",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({text:t.slice(off,off+400)})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error||!d.lang)return;it.lang=d.lang;putItem(it);
+      if(cur===it){mlUI();voices();voices2();ci=-1;setPos(pos)}
+    }).catch(function(){});
 }
+function openReader(it){
+  stop();cur=it;trWarn=false;build();
+  var g=prog[it.id]||{};$("rt").textContent=it.title;mtTok++;mWait=null;mlUI();voices();voices2();
+  $("reader").classList.add("open");setPos(g.done?0:Math.min(g.pos||0,sents.length-1));detectLang(it);
+}
+/* Bahasa utama: subtitle asli (YouTube) atau terjemahan mesin (semua sumber) */
+var mlTok=0;
+function noVoiceWarn(){var L=mainLang();if(!L||!synth)return;var vs=synth.getVoices();
+  if(vs.length&&!vs.some(function(x){return vMatch(x,L)}))toast("Perangkat ini belum punya suara "+langName(L)+". Suara bawaan dipakai; pasang suara "+langName(L)+" di pengaturan text-to-speech.")}
+function afterLang(it,msg){
+  putItem(it);trTok++;mtTok++;mWait=null;trWarn=false;ci=-1;
+  mlUI();voices();voices2();setPos(pos);toast(msg);setTimeout(noVoiceWarn,1500)}
+function setMain(code){
+  if(!cur)return;var it=cur;
+  if(code===(it.main||(it.lang&&it.lang!=="und"?it.lang:"")))return;
+  var tok=++mlTok,prev=it.main||it.lang||"";stop();
+  var real=!!(it.yt&&it.yt.langs&&it.yt.langs.indexOf(code)>=0&&code!==it.lang);
+  if(!real){
+    it.main=(!code||(it.lang&&it.lang!=="und"&&sameLang(code,it.lang)))?"":code;
+    afterLang(it,it.main?"Bahasa utama: "+langName(code)+" (terjemahan mesin)":"Kembali ke teks asli");return}
+  function apply(text){
+    if(cur!==it||tok!==mlTok)return;
+    var ratio=sents.length>1?pos/(sents.length-1):0;
+    it.lang=code;it.main="";it.text=text;it.n=split(text).length;it.w=wc(text);putItem(it);
+    trTok++;mtTok++;mWait=null;trWarn=false;build();mlUI();voices();voices2();
+    var g=prog[it.id]||{};if(g.done)delete prog[it.id];
+    var np=Math.round(ratio*(sents.length-1));prog[it.id]={pos:np,done:false};saveProg();
+    setPos(np);toast("Bahasa utama: "+langName(code));setTimeout(noVoiceWarn,1500)}
+  if(it.yt.tracks&&it.yt.tracks[code]){apply(it.yt.tracks[code]);return}
+  toast("Mengambil subtitle "+langName(code)+"…",true);
+  fetch("/api/youtube?url="+encodeURIComponent(it.yt.url)+"&lang="+encodeURIComponent(code))
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error)throw new Error(d.error);
+      if(!it.yt.tracks)it.yt.tracks={};it.yt.tracks[code]=d.text;apply(d.text)
+    }).catch(function(e){if(tok===mlTok){$("ml").value=prev;toast("Gagal ganti bahasa: "+e.message)}});
+}
+$("ml").onchange=function(){setMain(this.value)};
+function paintMain(k){var sp=$("rbody").querySelector('[data-i="'+k+'"]');if(!sp)return;sp.classList.remove("pend");if(hl&&hl.el===sp)return;sp.textContent=dsent(k)+" "}
+function mReady(k){return !cur||!cur.main||mainCache[mk(cur.main,cur.id,cur.lang||"",k)]!=null}
+/* terjemahkan kalimat bahasa utama secara bertahap (maks 15 per permintaan, 75 kalimat ke depan) */
+function warmMain(){
+  if(!cur||!cur.main||mBusy||!sents.length)return;
+  var it=cur,code=it.main,L=it.lang||"",tok=mtTok,idx=[],lim=Math.min(sents.length,pos+75);
+  for(var k=pos;k<lim&&idx.length<15;k++)if(mainCache[mk(code,it.id,L,k)]==null)idx.push(k);
+  if(!idx.length)return;
+  mBusy=true;
+  fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tl:code,texts:idx.map(function(k){return sents[k]})})})
+    .then(function(r){return r.json()}).then(function(d){
+      if(d.error)throw new Error(d.error);mBusy=false;
+      d.out.forEach(function(t,j){mainCache[mk(code,it.id,L,idx[j])]=t});
+      if(tok===mtTok&&cur===it){idx.forEach(paintMain);
+        if(mWait&&mReady(mWait.k)){var w=mWait;mWait=null;w.cb()}}
+      warmMain()
+    }).catch(function(e){mBusy=false;if(tok===mtTok){mWait=null;stop();toast("Terjemahan gagal: "+e.message)}});
+}
+function waitMain(k,cb){
+  if(mReady(k)){cb();return}
+  mWait={k:k,cb:function(){$("toast").style.display="none";cb()}};toast("Menerjemahkan…",true);warmMain()}
 function setPos(i){
-  pos=Math.max(0,Math.min(i,sents.length-1));var c=chunkOf(pos),body=$("rbody");
+  stopHL();pos=Math.max(0,Math.min(i,sents.length-1));var c=chunkOf(pos),body=$("rbody");
   if(c!==ci){ci=c;body.innerHTML="";var fr=document.createDocumentFragment();
-    for(var k=chunks[c].s;k<chunks[c].e;k++){var sp=document.createElement("span");sp.className="s";sp.dataset.i=k;sp.textContent=sents[k]+" ";fr.appendChild(sp)}
+    for(var k=chunks[c].s;k<chunks[c].e;k++){var sp=document.createElement("span");sp.className="s"+(mReady(k)?"":" pend");sp.dataset.i=k;sp.textContent=dsent(k)+" ";fr.appendChild(sp)}
     body.appendChild(fr);$("part").textContent="Bagian "+(c+1)+"/"+chunks.length;translateChunk()}
   var pv=body.querySelector(".on");if(pv)pv.classList.remove("on");
   var el=body.querySelector('[data-i="'+pos+'"]');if(el){el.classList.add("on");el.scrollIntoView({block:"center",behavior:"smooth"})}
-  $("seek").value=pos;updTime();
+  $("seek").value=pos;updTime();warmMain();
 }
+/* ---------- Sorot per kata ---------- */
+function wordSegs(t,L){
+  var out=[];
+  if(window.Intl&&Intl.Segmenter){
+    var sg;try{sg=new Intl.Segmenter(L?vlang(L):undefined,{granularity:"word"})}catch(e){sg=new Intl.Segmenter(undefined,{granularity:"word"})}
+    Array.from(sg.segment(t)).forEach(function(x){if(x.isWordLike)out.push({s:x.index,e:x.index+x.segment.length})});
+  }else{var re=/\S+/g,m;while((m=re.exec(t)))out.push({s:m.index,e:m.index+m[0].length})}
+  return out}
+function newHL(el,t,tail,L,rate){return {el:el,t:t,tail:tail,w:wordSegs(t,L),rate:rate||1,idx:-2,real:false,timer:0,t0:0,wait:0,
+  cjk:/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0e00-\u0e7f]/.test(t)}}
+function paintHL(i){var h=hl;if(!h||h.idx===i)return;h.idx=i;var el=h.el;el.textContent="";
+  var w=h.w[i];if(!w){el.textContent=h.t+h.tail;return}
+  var m=document.createElement("mark");m.className="w";m.textContent=h.t.slice(w.s,w.e);
+  el.appendChild(document.createTextNode(h.t.slice(0,w.s)));el.appendChild(m);el.appendChild(document.createTextNode(h.t.slice(w.e)+h.tail))}
+function wordIdx(h,pos2){for(var j=0;j<h.w.length;j++){if(h.w[j].e>pos2)return j}return -1}
+function hlAt(c){var h=hl;if(!h)return;h.real=true;clearInterval(h.timer);clearTimeout(h.wait);var i=wordIdx(h,c);if(i>=0)paintHL(i)}
+/* Cadangan: sebagian suara (mis. suara jaringan di Chrome) tidak mengirim event kata, jadi posisi kata diperkirakan dari waktu */
+function hlStart(){var h=hl;if(!h)return;h.t0=performance.now();
+  h.wait=setTimeout(function(){if(hl!==h||h.real)return;
+    var cps=(h.cjk?7.5:14)*h.rate;
+    h.timer=setInterval(function(){if(hl!==h||h.real){clearInterval(h.timer);return}
+      var i=wordIdx(h,(performance.now()-h.t0)/1000*cps);paintHL(i<0?h.w.length-1:i)},80)},600)}
+function stopHL(){var h=hl;if(!h)return;clearInterval(h.timer);clearTimeout(h.wait);hl=null;h.el.textContent=h.t+h.tail}
+
 function speak(){
-  if(!synth||!cur)return;synth.cancel();
-  var txt=sents[pos],lang=null,vs=synth.getVoices();
-  if(trOn&&$("trspeak").checked&&trCache[trKey(pos)]){txt=trCache[trKey(pos)];lang=$("tl").value}
-  var u=new SpeechSynthesisUtterance(txt),v=lang?vs.filter(function(x){return x.lang.toLowerCase().indexOf(lang.toLowerCase().slice(0,2))===0})[0]:vs.filter(function(x){return x.name===$("voice").value})[0];
-  if(v){u.voice=v;u.lang=v.lang}else u.lang=lang||"id-ID";
-  u.rate=parseFloat($("rate").value);var mine=pos;
-  u.onend=function(){if(!playing||pos!==mine)return;
-    if(mine>=sents.length-1){prog[cur.id]={pos:0,done:true};saveProg();playing=false;$("play").textContent="▶";toast("Selesai")}
-    else{setPos(mine+1);prog[cur.id]={pos:pos,done:false};saveProg();speak()}};
-  playing=true;$("play").textContent="⏸";synth.speak(u);
+  if(!synth||!cur)return;synth.cancel();stopHL();
+  var tok=++spTok,k=pos;playing=true;$("play").textContent="⏸";
+  waitMain(k,function(){if(tok!==spTok||!playing)return;say(k,tok)});
 }
-function stop(){playing=false;if(synth)synth.cancel();$("play").textContent="▶"}
+function say(k,tok){
+  var txt=dsent(k),lang=null,tail=" ",v,el=$("rbody").querySelector('.s[data-i="'+k+'"]');
+  if(trOn&&$("trspeak").checked&&!trSame()){var t=trText(k);
+    if(t){txt=t;lang=$("tl").value;tail="";var nx=el&&el.nextElementSibling;el=nx&&nx.classList.contains("tr")?nx:null}}
+  v=lang?voice2():mainVoice();
+  var u=new SpeechSynthesisUtterance(txt);
+  if(v){u.voice=v;u.lang=v.lang}else u.lang=lang?vlang(lang):(mainLang()?vlang(mainLang()):"id-ID");
+  u.rate=parseFloat($("rate").value);
+  if(el)hl=newHL(el,txt,tail,lang||mainLang(),u.rate);
+  u.onstart=function(){if(tok===spTok&&hl)hlStart()};
+  u.onboundary=function(e){if(tok!==spTok||!hl)return;if(e.name&&e.name!=="word")return;hlAt(e.charIndex)};
+  u.onend=function(){if(tok!==spTok)return;stopHL();if(!playing||pos!==k)return;
+    if(k>=sents.length-1){prog[cur.id]={pos:0,done:true};saveProg();playing=false;$("play").textContent="▶";toast("Selesai")}
+    else{setPos(k+1);prog[cur.id]={pos:pos,done:false};saveProg();speak()}};
+  u.onerror=function(e){if(tok!==spTok)return;if(e.error==="canceled"||e.error==="interrupted")return;
+    stopHL();playing=false;$("play").textContent="▶";toast("Suara gagal diputar ("+(e.error||"error")+")")};
+  synth.speak(u);
+}
+function stop(){playing=false;spTok++;stopHL();if(synth)synth.cancel();$("play").textContent="▶"}
 function go(i,play){setPos(i);if(cur)prog[cur.id]={pos:pos,done:false};saveProg();if(play||playing)speak()}
 $("play").onclick=function(){if(!cur)return;if(playing){stop();prog[cur.id]={pos:pos,done:false};saveProg()}else speak()};
 $("prev").onclick=function(){go(pos-1)};$("next").onclick=function(){go(pos+1)};
@@ -180,23 +329,29 @@ $("pprev").onclick=function(){go(chunks[Math.max(0,ci-1)].s)};$("pnext").onclick
 $("seek").oninput=function(){updTime(+this.value)};$("seek").onchange=function(){go(+this.value)};
 $("rbody").onclick=function(e){if(e.target.closest(".tr"))return;var s=e.target.closest(".s");if(!s)return;var w=wordAt(e);if(w)showWord(w,+s.dataset.i);else go(+s.dataset.i,true)};
 $("rate").onchange=function(){updTime();if(playing)speak()};
-$("voice").onchange=function(){try{localStorage.setItem(KEY+"-voice",$("voice").value)}catch(e){}if(playing)speak()};
-$("back").onclick=function(){stop();ptok++;trTok++;$("pop").classList.remove("open");$("reader").classList.remove("open");cur=null;render()};
+$("voice").onchange=function(){try{localStorage.setItem(vKey(mainLang()),$("voice").value)}catch(e){}if(playing)speak()};
+$("voice2").onchange=function(){try{localStorage.setItem(vKey2($("tl").value),$("voice2").value)}catch(e){}if(playing&&trOn&&$("trspeak").checked)speak()};
+$("back").onclick=function(){stop();ptok++;trTok++;mtTok++;mWait=null;$("pop").classList.remove("open");$("reader").classList.remove("open");cur=null;render()};
 
 /* ---------- Terjemahan ---------- */
-var trOn=false,trCache={},trTok=0,ptok=0,popI=0,popW="";
-function trKey(k){return $("tl").value+"|"+cur.id+"|"+k}
+var trOn=false,trCache={},trTok=0,ptok=0,popI=0,popW="",trWarn=false;
+function trKeyOf(tl,id,L,k){return tl+"|"+id+"|"+L+"|"+k}
+function trKey(k){return trKeyOf($("tl").value,cur.id,cur.lang||"",k)}
+function trText(k){var T=$("tl").value;if(cur.lang&&cur.lang!=="und"&&sameLang(T,cur.lang))return sents[k];return trCache[trKey(k)]||null}
+function trSame(){var L=mainLang();return !!L&&pl(L)===pl($("tl").value)}
 function wordAt(e){
   var n,o,t,a,b,re=/[\p{L}\p{N}'’-]/u;
   if(document.caretPositionFromPoint){var p=document.caretPositionFromPoint(e.clientX,e.clientY);if(p){n=p.offsetNode;o=p.offset}}
   else if(document.caretRangeFromPoint){var r=document.caretRangeFromPoint(e.clientX,e.clientY);if(r){n=r.startContainer;o=r.startOffset}}
   if(!n||n.nodeType!==3)return null;t=n.textContent;a=o;b=o;
+  if(window.Intl&&Intl.Segmenter){try{var L=mainLang(),sg=new Intl.Segmenter(L?vlang(L):undefined,{granularity:"word"}),arr=Array.from(sg.segment(t));
+    for(var q=0;q<arr.length;q++){var x=arr[q];if(o>=x.index&&o<x.index+x.segment.length)return x.isWordLike?x.segment:null}}catch(err){}}
   while(a>0&&re.test(t[a-1]))a--;while(b<t.length&&re.test(t[b]))b++;
   return t.slice(a,b).replace(/^[-'’]+|[-'’]+$/g,"")||null}
 function showWord(w,i){
   stop();setPos(i);popI=i;popW=w;var tok=++ptok;
   $("pw").textContent=w;$("pbody").textContent="Memuat…";$("pop").classList.add("open");
-  fetch("/api/word?w="+encodeURIComponent(w)+"&s="+encodeURIComponent(sents[i])+"&tl="+encodeURIComponent($("tl").value))
+  fetch("/api/word?w="+encodeURIComponent(w)+"&s="+encodeURIComponent(dsent(i))+"&tl="+encodeURIComponent($("tl").value))
     .then(function(r){return r.json()}).then(function(d){
       if(tok!==ptok)return;if(d.error)throw new Error(d.error);
       var b=$("pbody");b.innerHTML="";
@@ -209,28 +364,29 @@ function showWord(w,i){
 }
 $("pclose").onclick=function(){ptok++;$("pop").classList.remove("open")};
 $("pplay").onclick=function(){ptok++;$("pop").classList.remove("open");go(popI,true)};
-$("phear").onclick=function(){if(!synth)return;synth.cancel();var u=new SpeechSynthesisUtterance(popW),v=synth.getVoices().filter(function(x){return x.name===$("voice").value})[0];if(v){u.voice=v;u.lang=v.lang}synth.speak(u)};
+$("phear").onclick=function(){if(!synth)return;synth.cancel();var u=new SpeechSynthesisUtterance(popW),v=mainVoice();if(v){u.voice=v;u.lang=v.lang}else if(mainLang())u.lang=vlang(mainLang());synth.speak(u)};
 function applyTr(k){
-  var t=trCache[trKey(k)],sp=$("rbody").querySelector('[data-i="'+k+'"]');
+  var t=trText(k),sp=$("rbody").querySelector('[data-i="'+k+'"]');
   if(!t||!sp||(sp.nextElementSibling&&sp.nextElementSibling.classList.contains("tr")))return;
   var x=document.createElement("span");x.className="tr";x.textContent=t;sp.after(x)}
 function translateChunk(){
   $("rbody").classList.toggle("tron",trOn);if(!trOn||ci<0||!cur)return;
+  if(trSame()){if(!trWarn){trWarn=true;toast("Bahasa terjemahan sama dengan bahasa utama, pilih bahasa terjemahan lain")}return}
   var c=chunks[ci],tok=++trTok,todo=[];
-  for(var k=c.s;k<c.e;k++){if(trCache[trKey(k)])applyTr(k);else todo.push(k)}
+  for(var k=c.s;k<c.e;k++){if(trText(k))applyTr(k);else todo.push(k)}
   todo=todo.filter(function(k){return k>=pos}).concat(todo.filter(function(k){return k<pos}));
   (function next(){
-    if(tok!==trTok||!todo.length)return;var b=todo.splice(0,15),tl=$("tl").value,id=cur.id;
+    if(tok!==trTok||!todo.length)return;var b=todo.splice(0,15),tl=$("tl").value,id=cur.id,L=cur.lang||"";
     fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tl:tl,texts:b.map(function(k){return sents[k]})})})
       .then(function(r){return r.json()}).then(function(d){
         if(d.error)throw new Error(d.error);if(tok!==trTok)return;
-        d.out.forEach(function(t,j){trCache[tl+"|"+id+"|"+b[j]]=t;applyTr(b[j])});next()
+        d.out.forEach(function(t,j){trCache[trKeyOf(tl,id,L,b[j])]=t;applyTr(b[j])});next()
       }).catch(function(e){toast("Terjemahan gagal: "+e.message)});
   })();
 }
-$("trbtn").onclick=function(){trOn=!trOn;this.textContent=trOn?"🌐 Terjemahan: ON":"🌐 Terjemahkan";
+$("trbtn").onclick=function(){trOn=!trOn;trWarn=false;this.textContent=trOn?"🌐 Terjemahan: ON":"🌐 Terjemahkan";
   if(!trOn){trTok++;[].forEach.call($("rbody").querySelectorAll(".tr"),function(x){x.remove()})}translateChunk()};
-$("tl").onchange=function(){try{localStorage.setItem(KEY+"-tl",this.value)}catch(e){}
+$("tl").onchange=function(){trWarn=false;voices2();try{localStorage.setItem(KEY+"-tl",this.value)}catch(e){}
   if(trOn){trTok++;[].forEach.call($("rbody").querySelectorAll(".tr"),function(x){x.remove()});translateChunk()}};
 
 /* ---------- Library & tambah ---------- */
@@ -239,7 +395,7 @@ $("fab").onclick=function(){$("menu").classList.toggle("open");$("fab").textCont
 $("menu").onclick=function(e){var t=e.target.dataset.add;if(!t)return;$("menu").classList.remove("open");$("fab").textContent="+";
   if(t==="text"){$("dtitle").value="";$("dbody").value="";$("dlg").showModal()}
   else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)remote("/api/extract?url="+encodeURIComponent(u.trim()),u)}
-  else if(t==="yt"){var y=prompt("Tempel link YouTube (harus punya subtitle)");if(y)remote("/api/youtube?url="+encodeURIComponent(y.trim()),y)}
+  else if(t==="yt"){var y=prompt("Tempel link YouTube (harus punya subtitle)");if(y){y=y.trim();remote("/api/youtube?url="+encodeURIComponent(y),y,undefined,function(d){var tr={};tr[d.lang]=d.text;return {lang:d.lang,yt:{url:y,langs:d.langs,tracks:tr}}})}}
   else if(t==="scan")$("scan").click();else $("file").click()};
 $("dcancel").onclick=function(){$("dlg").close()};
 $("dsave").onclick=function(){var b=$("dbody").value.trim();if(!b){$("dbody").focus();return}add($("dtitle").value.trim()||b.slice(0,40),b);$("dlg").close()};
@@ -255,7 +411,7 @@ $("scan").onchange=function(){
 };
 try{prog=JSON.parse(localStorage.getItem(PK)||"{}")}catch(e){}
 try{var sl=localStorage.getItem(KEY+"-tl");if(sl)$("tl").value=sl}catch(e){}
-if(synth){voices();synth.onvoiceschanged=voices}else toast("Browser tidak mendukung text-to-speech");
+if(synth){voices();voices2();synth.onvoiceschanged=function(){voices();voices2()}}else toast("Browser tidak mendukung text-to-speech");
 idb().then(function(d){db=d;return run("readonly",function(s){return s.getAll()})}).then(function(r){
   items=r||[];
   var old=[];try{old=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){}
