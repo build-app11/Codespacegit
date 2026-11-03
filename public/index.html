@@ -5,220 +5,203 @@
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>Suara – Pembaca Teks</title>
 <style>
-:root{--bg:#f3f5f4;--surface:#fff;--text:#1b2420;--muted:#6b7772;--line:#dfe5e2;--accent:#1f9d63;--accent-ink:#fff;--danger:#d9382b;box-sizing:border-box;padding-top:env(safe-area-inset-top,0px);padding-bottom:env(safe-area-inset-bottom,0px);color-scheme:light}
-@media (prefers-color-scheme:dark){:root:not([data-theme="light"]){--bg:#121816;--surface:#1b2420;--text:#e8efeb;--muted:#93a19a;--line:#2b3631;--accent:#34c183;--accent-ink:#06150e;--danger:#ff6b5e;color-scheme:dark}}
-:root[data-theme="dark"]{--bg:#121816;--surface:#1b2420;--text:#e8efeb;--muted:#93a19a;--line:#2b3631;--accent:#34c183;--accent-ink:#06150e;--danger:#ff6b5e;color-scheme:dark}
-html{scroll-padding-top:env(safe-area-inset-top,0px)}
+:root{--bg:#f3f5f4;--surface:#fff;--text:#1b2420;--muted:#6b7772;--line:#dfe5e2;--accent:#1f9d63;--accent-ink:#fff;--hl:#bfeed6;color-scheme:light}
+@media (prefers-color-scheme:dark){:root{--bg:#121816;--surface:#1b2420;--text:#e8efeb;--muted:#93a19a;--line:#2b3631;--accent:#34c183;--accent-ink:#06150e;--hl:#1f5a40;color-scheme:dark}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--text);font-family:"Plus Jakarta Sans",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;min-height:100vh}
-.wrap{max-width:560px;margin:0 auto;padding:20px 16px 140px}
-h1{font-size:26px;margin:4px 0 14px;letter-spacing:-.02em}
+body{margin:0;background:var(--bg);color:var(--text);font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif}
+.wrap{max-width:560px;margin:0 auto;padding:calc(20px + env(safe-area-inset-top,0px)) 16px 110px}
+h1{font-size:26px;margin:4px 0 14px}
 .tabs{display:flex;border-bottom:1px solid var(--line);margin-bottom:16px;overflow-x:auto}
 .tab{flex:1;background:none;border:0;padding:12px 8px;font:inherit;color:var(--muted);cursor:pointer;border-bottom:3px solid transparent;white-space:nowrap}
 .tab[aria-selected="true"]{color:var(--text);font-weight:600;border-color:var(--accent)}
 .item{display:flex;align-items:center;gap:14px;padding:10px 0;cursor:pointer}
-.disc{width:56px;height:56px;border-radius:50%;flex:none;background:conic-gradient(from 20deg,var(--accent),#7ad9ae,var(--accent));display:grid;place-items:center;color:var(--accent-ink);font-weight:700;position:relative}
-.disc::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--bg);position:absolute}
-.meta{flex:1;min-width:0}
-.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.sub{font-size:13px;color:var(--muted)}
-.bar{height:4px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden}
-.bar i{display:block;height:100%;background:var(--accent)}
-.del{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:36px;height:36px;border-radius:50%;cursor:pointer;font-size:16px}
+.disc{width:56px;height:56px;border-radius:50%;flex:none;background:conic-gradient(var(--accent),#7ad9ae,var(--accent));position:relative}
+.disc::after{content:"";width:14px;height:14px;border-radius:50%;background:var(--bg);position:absolute;inset:0;margin:auto}
+.meta{flex:1;min-width:0}.title{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sub{font-size:13px;color:var(--muted)}.bar{height:4px;background:var(--line);border-radius:2px;margin-top:6px;overflow:hidden}.bar i{display:block;height:100%;background:var(--accent)}
+.del{background:var(--surface);border:1px solid var(--line);color:var(--muted);width:36px;height:36px;border-radius:50%;cursor:pointer}
 .empty{color:var(--muted);text-align:center;padding:48px 16px}
 .fab{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(20px + env(safe-area-inset-bottom,0px));width:56px;height:56px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:28px;cursor:pointer;box-shadow:0 6px 18px rgba(0,0,0,.25);z-index:5}
 .menu{position:fixed;right:max(16px,calc(50% - 264px));bottom:calc(88px + env(safe-area-inset-bottom,0px));display:none;flex-direction:column;gap:10px;align-items:flex-end;z-index:5}
-.menu.open{display:flex}
-.menu button{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:14px 22px;font:inherit;cursor:pointer;min-width:150px;text-align:left}
-dialog{border:0;border-radius:20px;background:var(--surface);color:var(--text);width:min(520px,92vw);padding:20px}
-dialog::backdrop{background:rgba(0,0,0,.45)}
-input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}
-textarea{min-height:200px;resize:vertical}
-.row{display:flex;gap:8px;justify-content:flex-end}
-.btn{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:10px 18px;border-radius:999px;cursor:pointer}
-.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
-.player{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);padding:14px 16px calc(14px + env(safe-area-inset-bottom,0px));display:none;z-index:6}
-.player.open{display:block}
-.pin{max-width:560px;margin:0 auto}
-.pt{font-weight:600;margin-bottom:2px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.pcur{font-size:14px;color:var(--muted);max-height:3.2em;overflow:hidden;margin-bottom:10px}
-.ctl{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
-.ctl select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px;max-width:150px}
-.ctl .grow{flex:1}
-.round{width:48px;height:48px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:18px;cursor:pointer}
-.small{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
-.warn{background:var(--surface);border:1px solid var(--danger);color:var(--danger);border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px;display:none}
+.menu.open{display:flex}.menu button{background:var(--surface);color:var(--text);border:1px solid var(--line);border-radius:999px;padding:14px 22px;font:inherit;cursor:pointer;min-width:150px;text-align:left}
+dialog{border:0;border-radius:20px;background:var(--surface);color:var(--text);width:min(520px,92vw);padding:20px}dialog::backdrop{background:rgba(0,0,0,.45)}
+input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:12px;margin-bottom:10px}textarea{min-height:200px}
+.row{display:flex;gap:8px;justify-content:flex-end}.btn{font:inherit;border:1px solid var(--line);background:var(--surface);color:var(--text);padding:10px 18px;border-radius:999px;cursor:pointer}.btn.primary{background:var(--accent);color:var(--accent-ink);border-color:var(--accent);font-weight:600}
+.toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:14px;display:none;z-index:30;max-width:90vw}
+.reader{position:fixed;inset:0;background:var(--bg);display:none;flex-direction:column;z-index:20}.reader.open{display:flex}
+.rhead{display:flex;align-items:center;gap:10px;padding:calc(10px + env(safe-area-inset-top,0px)) 12px 10px;border-bottom:1px solid var(--line)}
+.rhead .t{flex:1;min-width:0;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}.rhead .p{font-size:13px;color:var(--muted)}
+.rbody{flex:1;overflow-y:auto;padding:20px 18px;font-size:19px;line-height:1.75;max-width:680px;width:100%;margin:0 auto}
+.s{cursor:pointer;border-radius:4px;transition:background .2s}.s.on{background:var(--hl)}
+.rfoot{background:var(--surface);border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px))}
+.fin{max-width:680px;margin:0 auto}
+.seek{display:flex;align-items:center;gap:10px;font-size:13px;color:var(--muted);font-variant-numeric:tabular-nums}.seek input{flex:1;accent-color:var(--accent)}
+.ctl{display:flex;align-items:center;justify-content:center;gap:10px;margin-top:8px;flex-wrap:wrap}
+.round{width:54px;height:54px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:20px;cursor:pointer}
+.small{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
+.ctl select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px;max-width:140px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
-.toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:14px;display:none;z-index:20;max-width:90vw}
 </style>
 </head>
 <body>
 <div class="wrap">
   <h1>Perpustakaan</h1>
-  <div class="warn" id="warn">Browser ini tidak mendukung suara teks-ke-ucapan. Coba Chrome, Edge, atau Safari.</div>
-  <div class="tabs" role="tablist" id="tabs">
-    <button class="tab" role="tab" data-t="all" aria-selected="true">Semua</button>
-    <button class="tab" role="tab" data-t="new" aria-selected="false">Belum mulai</button>
-    <button class="tab" role="tab" data-t="go" aria-selected="false">Lanjutkan</button>
-    <button class="tab" role="tab" data-t="done" aria-selected="false">Selesai</button>
+  <div class="tabs" role="tablist">
+    <button class="tab" data-t="all" aria-selected="true">Semua</button>
+    <button class="tab" data-t="new" aria-selected="false">Belum mulai</button>
+    <button class="tab" data-t="go" aria-selected="false">Lanjutkan</button>
+    <button class="tab" data-t="done" aria-selected="false">Selesai</button>
   </div>
   <div id="list"></div>
 </div>
-
 <div class="menu" id="menu">
-  <button data-add="text">Teks biasa</button>
-  <button data-add="file">File</button>
-  <button data-add="scan">Scan</button>
-  <button data-add="yt">YouTube</button>
-  <button data-add="link">Web Link</button>
+  <button data-add="text">Teks biasa</button><button data-add="file">File (PDF, EPUB, DOCX)</button>
+  <button data-add="scan">Scan dokumen</button><button data-add="yt">YouTube</button><button data-add="link">Web Link</button>
 </div>
-<button class="fab" id="fab" aria-label="Tambah teks">+</button>
-<input type="file" id="file" accept=".txt,.md,.pdf,.docx,.html,.htm" hidden>
-<input type="file" id="scan" accept="image/*" capture="environment" hidden>
+<button class="fab" id="fab" aria-label="Tambah">+</button>
+<input type="file" id="file" accept=".txt,.md,.pdf,.epub,.docx,.html,.htm" hidden>
+<input type="file" id="scan" accept="image/*" multiple hidden>
 <div class="toast" id="toast" role="status"></div>
-<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<dialog id="dlg"><h2 style="margin:0 0 12px;font-size:20px">Tambah teks</h2>
+  <input type="text" id="dtitle" placeholder="Judul"><textarea id="dbody" placeholder="Tempel teks di sini"></textarea>
+  <div class="row"><button class="btn" id="dcancel">Batal</button><button class="btn primary" id="dsave">Simpan</button></div></dialog>
 
-<dialog id="dlg">
-  <h2 style="margin:0 0 12px;font-size:20px">Tambah teks</h2>
-  <input type="text" id="dtitle" placeholder="Judul">
-  <textarea id="dbody" placeholder="Tempel teks di sini"></textarea>
-  <div class="row"><button class="btn" id="dcancel">Batal</button><button class="btn primary" id="dsave">Simpan</button></div>
-</dialog>
-
-<div class="player" id="player">
-  <div class="pin">
-    <div class="pt" id="ptitle"></div>
-    <div class="pcur" id="pcur"></div>
+<div class="reader" id="reader">
+  <div class="rhead"><button class="small" id="back" aria-label="Kembali">←</button><div class="t" id="rt"></div><div class="p" id="part"></div></div>
+  <div class="rbody" id="rbody"></div>
+  <div class="rfoot"><div class="fin">
+    <div class="seek"><span id="tcur">0:00</span><input type="range" id="seek" min="0" max="0" value="0" aria-label="Posisi"><span id="ttot">0:00</span></div>
     <div class="ctl">
+      <button class="small" id="pprev" aria-label="Bagian sebelumnya">⏪</button>
       <button class="small" id="prev" aria-label="Kalimat sebelumnya">⏮</button>
       <button class="round" id="play" aria-label="Putar">▶</button>
       <button class="small" id="next" aria-label="Kalimat berikutnya">⏭</button>
-      <select id="voice" aria-label="Suara"></select>
-      <select id="rate" aria-label="Kecepatan">
-        <option value="0.75">0.75x</option><option value="1" selected>1x</option>
-        <option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option>
-      </select>
-      <span class="grow"></span>
-      <button class="small" id="close" aria-label="Tutup">✕</button>
+      <button class="small" id="pnext" aria-label="Bagian berikutnya">⏩</button>
     </div>
-  </div>
+    <div class="ctl"><select id="voice" aria-label="Suara"></select>
+      <select id="rate" aria-label="Kecepatan"><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
+    <div class="sub" style="text-align:center;margin-top:6px">Durasi adalah perkiraan</div>
+  </div></div>
 </div>
-
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 (function(){
-  var KEY="suara-lib-v1", items=[], tab="all", cur=null, sents=[], pos=0, playing=false;
-  var synth=window.speechSynthesis;
-  var $=function(i){return document.getElementById(i)};
+var KEY="suara-lib-v2",PK="suara-prog-v2",CH=2000,items=[],prog={},tab="all";
+var cur=null,sents=[],cum=[],chunks=[],ci=-1,pos=0,playing=false,tt;
+var synth=window.speechSynthesis,$=function(i){return document.getElementById(i)};
+function toast(m,keep){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);if(!keep)tt=setTimeout(function(){t.style.display="none"},4000)}
+var db;
+function idb(){return new Promise(function(res,rej){var r=indexedDB.open("suara",1);r.onupgradeneeded=function(){r.result.createObjectStore("items",{keyPath:"id"})};r.onsuccess=function(){res(r.result)};r.onerror=function(){rej(r.error)}})}
+function run(mode,fn){return new Promise(function(res,rej){var t=db.transaction("items",mode),q=fn(t.objectStore("items"));t.oncomplete=function(){res(q&&q.result)};t.onerror=t.onabort=function(){rej(t.error)}})}
+function putItem(it){return run("readwrite",function(s){return s.put(it)}).catch(function(){toast("Gagal menyimpan, ruang penyimpanan penuh?")})}
+function delItem(id){return run("readwrite",function(s){return s.delete(id)})}
+function saveProg(){try{localStorage.setItem(PK,JSON.stringify(prog))}catch(e){}}
+function split(t){var out=[],m=t.replace(/\s+/g," ").match(/[^.!?。]+[.!?。]*\s*/g)||[];
+  m.forEach(function(s){s=s.trim();while(s.length>260){var k=s.lastIndexOf(" ",260);if(k<100)k=260;out.push(s.slice(0,k).trim());s=s.slice(k).trim()}if(s)out.push(s)});return out}
+function wc(s){return s.split(" ").length}
+function status(it){var g=prog[it.id]||{};return g.done?"done":(g.pos>0?"go":"new")}
+function pct(it){var g=prog[it.id]||{};return g.done?100:Math.round((g.pos||0)/(it.n||1)*100)}
 
-  function load(){try{items=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){items=[]}}
-  function save(){try{localStorage.setItem(KEY,JSON.stringify(items))}catch(e){}}
-  function split(t){var m=t.replace(/\s+/g," ").match(/[^.!?。]+[.!?。]*\s*/g);return m?m.map(function(s){return s.trim()}).filter(Boolean):[]}
-  function status(it){var n=split(it.text).length;if(!it.pos)return"new";if(it.pos>=n-1&&it.done)return"done";return"go"}
-  function pct(it){var n=split(it.text).length||1;return it.done?100:Math.round(it.pos/n*100)}
+function render(){
+  var box=$("list");box.innerHTML="";
+  var shown=items.filter(function(it){return tab==="all"||status(it)===tab});
+  if(!shown.length){box.innerHTML='<div class="empty">Belum ada teks. Tekan + untuk menambahkan.</div>';return}
+  shown.forEach(function(it){
+    var d=document.createElement("div");d.className="item";var p=pct(it);
+    d.innerHTML='<div class="disc"></div><div class="meta"><div class="title"></div><div class="sub"></div><div class="bar"><i style="width:'+p+'%"></i></div></div><button class="del" aria-label="Hapus">⋮</button>';
+    d.querySelector(".title").textContent=it.title;
+    d.querySelector(".sub").textContent=it.w+" kata · "+Math.max(1,Math.round(it.w/160))+" mnt · "+p+"%";
+    d.onclick=function(){openReader(it)};
+    d.querySelector(".del").onclick=function(e){e.stopPropagation();if(confirm('Hapus "'+it.title+'"?')){items=items.filter(function(x){return x!==it});delete prog[it.id];delItem(it.id);saveProg();render()}};
+    box.appendChild(d);
+  });
+}
+function add(title,text){
+  text=(text||"").trim();if(!text)throw new Error("Tidak ada teks yang terbaca");
+  var it={id:Date.now(),title:title,text:text,n:split(text).length,w:wc(text)};
+  items.unshift(it);putItem(it);render();toast("Ditambahkan ke Library");
+}
+function remote(url,fallback,opts){
+  toast("Memproses…",true);
+  return fetch(url,opts).then(function(r){return r.json()}).then(function(d){if(d.error)throw new Error(d.error);add(d.title||fallback,d.text)}).catch(function(e){toast("Gagal: "+e.message)});
+}
 
-  function render(){
-    var box=$("list");box.innerHTML="";
-    var shown=items.filter(function(it){return tab==="all"||status(it)===tab});
-    if(!shown.length){box.innerHTML='<div class="empty">Belum ada teks. Tekan + untuk menambahkan.</div>';return}
-    shown.forEach(function(it){
-      var d=document.createElement("div");d.className="item";
-      var p=pct(it),words=it.text.split(/\s+/).length;
-      d.innerHTML='<div class="disc"></div><div class="meta"><div class="title"></div><div class="sub"></div><div class="bar"><i style="width:'+p+'%"></i></div></div><button class="del" aria-label="Hapus">⋮</button>';
-      d.querySelector(".title").textContent=it.title;
-      d.querySelector(".sub").textContent=words+" kata · "+p+"%";
-      d.onclick=function(){open(it)};
-      d.querySelector(".del").onclick=function(e){e.stopPropagation();if(confirm("Hapus \""+it.title+"\"?")){if(cur===it)closePlayer();items=items.filter(function(x){return x!==it});save();render()}};
-      box.appendChild(d);
-    });
-  }
+/* ---------- Reader ---------- */
+function voices(){var v=synth?synth.getVoices().slice():[],s=$("voice"),old=s.value;s.innerHTML="";
+  v.sort(function(a,b){return (a.lang.indexOf("id")===0?0:1)-(b.lang.indexOf("id")===0?0:1)||a.name.localeCompare(b.name)});
+  v.forEach(function(x){var o=document.createElement("option");o.value=x.name;o.textContent=x.name+" ("+x.lang+")";s.appendChild(o)});
+  try{var sv=localStorage.getItem(KEY+"-voice");if(sv)s.value=sv}catch(e){}if(old)s.value=old}
+function fmt(sec){sec=Math.round(sec);var h=Math.floor(sec/3600),m=Math.floor(sec%3600/60),s=sec%60;return (h?h+":"+(m<10?"0":""):"")+m+":"+(s<10?"0":"")+s}
+function updTime(v){var wpm=160*parseFloat($("rate").value);v=(v==null)?pos:v;
+  $("tcur").textContent=fmt(cum[v]/wpm*60);$("ttot").textContent=fmt(cum[sents.length]/wpm*60)}
+function chunkOf(i){for(var c=0;c<chunks.length;c++)if(i>=chunks[c].s&&i<chunks[c].e)return c;return 0}
+function openReader(it){
+  stop();cur=it;sents=split(it.text);cum=[0];chunks=[];var st=0,w=0;
+  sents.forEach(function(s,i){var n=wc(s);cum.push(cum[i]+n);w+=n;if(w>=CH||i===sents.length-1){chunks.push({s:st,e:i+1});st=i+1;w=0}});
+  var g=prog[it.id]||{};ci=-1;$("rt").textContent=it.title;$("seek").max=Math.max(sents.length-1,0);
+  $("reader").classList.add("open");setPos(g.done?0:Math.min(g.pos||0,sents.length-1));
+}
+function setPos(i){
+  pos=Math.max(0,Math.min(i,sents.length-1));var c=chunkOf(pos),body=$("rbody");
+  if(c!==ci){ci=c;body.innerHTML="";var fr=document.createDocumentFragment();
+    for(var k=chunks[c].s;k<chunks[c].e;k++){var sp=document.createElement("span");sp.className="s";sp.dataset.i=k;sp.textContent=sents[k]+" ";fr.appendChild(sp)}
+    body.appendChild(fr);$("part").textContent="Bagian "+(c+1)+"/"+chunks.length}
+  var pv=body.querySelector(".on");if(pv)pv.classList.remove("on");
+  var el=body.querySelector('[data-i="'+pos+'"]');if(el){el.classList.add("on");el.scrollIntoView({block:"center",behavior:"smooth"})}
+  $("seek").value=pos;updTime();
+}
+function speak(){
+  if(!synth||!cur)return;synth.cancel();
+  var u=new SpeechSynthesisUtterance(sents[pos]),v=synth.getVoices().filter(function(x){return x.name===$("voice").value})[0];
+  if(v){u.voice=v;u.lang=v.lang}else u.lang="id-ID";
+  u.rate=parseFloat($("rate").value);var mine=pos;
+  u.onend=function(){if(!playing||pos!==mine)return;
+    if(mine>=sents.length-1){prog[cur.id]={pos:0,done:true};saveProg();playing=false;$("play").textContent="▶";toast("Selesai")}
+    else{setPos(mine+1);prog[cur.id]={pos:pos,done:false};saveProg();speak()}};
+  playing=true;$("play").textContent="⏸";synth.speak(u);
+}
+function stop(){playing=false;if(synth)synth.cancel();$("play").textContent="▶"}
+function go(i,play){setPos(i);if(cur)prog[cur.id]={pos:pos,done:false};saveProg();if(play||playing)speak()}
+$("play").onclick=function(){if(!cur)return;if(playing){stop();prog[cur.id]={pos:pos,done:false};saveProg()}else speak()};
+$("prev").onclick=function(){go(pos-1)};$("next").onclick=function(){go(pos+1)};
+$("pprev").onclick=function(){go(chunks[Math.max(0,ci-1)].s)};$("pnext").onclick=function(){go(chunks[Math.min(chunks.length-1,ci+1)].s)};
+$("seek").oninput=function(){updTime(+this.value)};$("seek").onchange=function(){go(+this.value)};
+$("rbody").onclick=function(e){var s=e.target.closest(".s");if(s)go(+s.dataset.i,true)};
+$("rate").onchange=function(){updTime();if(playing)speak()};
+$("voice").onchange=function(){try{localStorage.setItem(KEY+"-voice",$("voice").value)}catch(e){}if(playing)speak()};
+$("back").onclick=function(){stop();$("reader").classList.remove("open");cur=null;render()};
 
-  function voices(){
-    var v=synth?synth.getVoices():[],s=$("voice");
-    var old=s.value;s.innerHTML="";
-    v.sort(function(a,b){return (a.lang.indexOf("id")===0?0:1)-(b.lang.indexOf("id")===0?0:1)||a.name.localeCompare(b.name)});
-    v.forEach(function(x,i){var o=document.createElement("option");o.value=x.name;o.textContent=x.name+" ("+x.lang+")";s.appendChild(o)});
-    try{var saved=localStorage.getItem(KEY+"-voice");if(saved)s.value=saved}catch(e){}
-    if(old)s.value=old;
-  }
-
-  function open(it){
-    stop();cur=it;sents=split(it.text);pos=Math.min(it.pos||0,Math.max(sents.length-1,0));
-    if(it.done){pos=0;it.done=false}
-    $("ptitle").textContent=it.title;$("player").classList.add("open");showCur();speak();
-  }
-  function showCur(){$("pcur").textContent=sents[pos]||""}
-  function speak(){
-    if(!synth||!cur)return;
-    synth.cancel();
-    if(pos>=sents.length){cur.done=true;cur.pos=sents.length;save();playing=false;$("play").textContent="▶";render();return}
-    var u=new SpeechSynthesisUtterance(sents[pos]);
-    var v=synth.getVoices().filter(function(x){return x.name===$("voice").value})[0];
-    if(v){u.voice=v;u.lang=v.lang}else u.lang="id-ID";
-    u.rate=parseFloat($("rate").value);
-    var mine=pos;
-    u.onend=function(){if(playing&&pos===mine){pos++;cur.pos=pos;save();showCur();speak()}};
-    playing=true;$("play").textContent="⏸";showCur();synth.speak(u);
-  }
-  function stop(){playing=false;if(synth)synth.cancel();$("play").textContent="▶"}
-  function closePlayer(){stop();if(cur){cur.pos=pos;save()}cur=null;$("player").classList.remove("open");render()}
-
-  $("play").onclick=function(){if(!cur)return;if(playing){stop();cur.pos=pos;save()}else speak()};
-  $("prev").onclick=function(){if(!cur)return;pos=Math.max(0,pos-1);speak()};
-  $("next").onclick=function(){if(!cur)return;pos=Math.min(sents.length,pos+1);speak()};
-  $("close").onclick=closePlayer;
-  $("rate").onchange=function(){if(playing)speak()};
-  $("voice").onchange=function(){try{localStorage.setItem(KEY+"-voice",$("voice").value)}catch(e){}if(playing)speak()};
-
-  document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){
-    tab=b.dataset.t;document.querySelectorAll(".tab").forEach(function(x){x.setAttribute("aria-selected",x===b)});render()}});
-
-  $("fab").onclick=function(){$("menu").classList.toggle("open");$("fab").textContent=$("menu").classList.contains("open")?"×":"+"};
-  function closeMenu(){$("menu").classList.remove("open");$("fab").textContent="+"}
-  $("menu").onclick=function(e){
-    var t=e.target.dataset.add;if(!t)return;closeMenu();
-    if(t==="text"){$("dtitle").value="";$("dbody").value="";$("dlg").showModal()}
-    else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)remote("/api/extract?url="+encodeURIComponent(u.trim()),u)}
-    else if(t==="yt"){var y=prompt("Tempel link YouTube (video harus punya subtitle)");if(y)remote("/api/youtube?url="+encodeURIComponent(y.trim()),y)}
-    else if(t==="scan")$("scan").click();
-    else $("file").click();
-  };
-  var tt;
-  function toast(m,keep){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);if(!keep)tt=setTimeout(function(){t.style.display="none"},4000)}
-  function add(title,text){
-    if(!text||!text.trim())throw new Error("Tidak ada teks yang terbaca");
-    items.unshift({id:Date.now(),title:title,text:text.trim(),pos:0,done:false});save();render();toast("Ditambahkan ke Library");
-  }
-  function remote(url,fallback,opts){
-    toast("Memproses…",true);
-    return fetch(url,opts).then(function(r){return r.json()}).then(function(d){
-      if(d.error)throw new Error(d.error);add(d.title||fallback,d.text);
-    }).catch(function(e){toast("Gagal: "+e.message)});
-  }
-  $("dcancel").onclick=function(){$("dlg").close()};
-  $("dsave").onclick=function(){
-    var b=$("dbody").value.trim();if(!b){$("dbody").focus();return}
-    items.unshift({id:Date.now(),title:$("dtitle").value.trim()||b.slice(0,40),text:b,pos:0,done:false});
-    save();$("dlg").close();render();
-  };
-  $("file").onchange=function(){
-    var f=this.files[0];this.value="";if(!f)return;
-    var fd=new FormData();fd.append("file",f);
-    remote("/api/file",f.name,{method:"POST",body:fd});
-  };
-  $("scan").onchange=function(){
-    var f=this.files[0];this.value="";if(!f)return;
-    if(!window.Tesseract){toast("Modul OCR gagal dimuat. Cek koneksi internet.");return}
-    toast("Membaca gambar… (bisa memakan waktu)",true);
-    Tesseract.recognize(f,"ind+eng",{logger:function(m){if(m.status==="recognizing text")toast("Membaca gambar… "+Math.round(m.progress*100)+"%",true)}})
-      .then(function(r){add("Scan "+new Date().toLocaleString("id-ID"),r.data.text.replace(/\s+/g," "))})
-      .catch(function(e){toast("Gagal: "+e.message)});
-  };
-
-  if(!synth)$("warn").style.display="block";
-  else{voices();synth.onvoiceschanged=voices}
-  load();
-  if(!items.length){items=[{id:1,title:"Contoh: Selamat datang",text:"Selamat datang di aplikasi pembaca teks. Tempel artikel atau unggah file teks, lalu tekan untuk mendengarkannya. Kamu bisa mengubah suara dan kecepatan di pemutar bawah. Progres bacaan tersimpan otomatis.",pos:0,done:false}];save()}
-  render();
+/* ---------- Library & tambah ---------- */
+document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){tab=b.dataset.t;document.querySelectorAll(".tab").forEach(function(x){x.setAttribute("aria-selected",x===b)});render()}});
+$("fab").onclick=function(){$("menu").classList.toggle("open");$("fab").textContent=$("menu").classList.contains("open")?"×":"+"};
+$("menu").onclick=function(e){var t=e.target.dataset.add;if(!t)return;$("menu").classList.remove("open");$("fab").textContent="+";
+  if(t==="text"){$("dtitle").value="";$("dbody").value="";$("dlg").showModal()}
+  else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)remote("/api/extract?url="+encodeURIComponent(u.trim()),u)}
+  else if(t==="yt"){var y=prompt("Tempel link YouTube (harus punya subtitle)");if(y)remote("/api/youtube?url="+encodeURIComponent(y.trim()),y)}
+  else if(t==="scan")$("scan").click();else $("file").click()};
+$("dcancel").onclick=function(){$("dlg").close()};
+$("dsave").onclick=function(){var b=$("dbody").value.trim();if(!b){$("dbody").focus();return}add($("dtitle").value.trim()||b.slice(0,40),b);$("dlg").close()};
+$("file").onchange=function(){var f=this.files[0];this.value="";if(!f)return;var fd=new FormData();fd.append("file",f);remote("/api/file",f.name,{method:"POST",body:fd})};
+$("scan").onchange=function(){
+  var fs=[].slice.call(this.files),out=[],i=0;this.value="";if(!fs.length)return;
+  if(!window.Tesseract){toast("Modul OCR gagal dimuat. Cek koneksi internet.");return}
+  (function next(){
+    if(i>=fs.length){try{add("Scan dokumen "+new Date().toLocaleDateString("id-ID"),out.join(" "))}catch(e){toast("Gagal: "+e.message)}return}
+    Tesseract.recognize(fs[i],"ind+eng",{logger:function(m){if(m.status==="recognizing text")toast("Halaman "+(i+1)+"/"+fs.length+" · "+Math.round(m.progress*100)+"%",true)}})
+      .then(function(r){out.push(r.data.text);i++;next()}).catch(function(e){toast("Gagal: "+e.message)});
+  })();
+};
+try{prog=JSON.parse(localStorage.getItem(PK)||"{}")}catch(e){}
+if(synth){voices();synth.onvoiceschanged=voices}else toast("Browser tidak mendukung text-to-speech");
+idb().then(function(d){db=d;return run("readonly",function(s){return s.getAll()})}).then(function(r){
+  items=r||[];
+  var old=[];try{old=JSON.parse(localStorage.getItem(KEY)||"[]")}catch(e){}
+  old.forEach(function(it){items.push(it);putItem(it)});
+  if(old.length){try{localStorage.removeItem(KEY)}catch(e){}}
+  if(!items.length){var txt="Selamat datang di aplikasi pembaca teks. Tempel artikel atau unggah file, lalu tekan untuk mendengarkannya. Kalimat yang dibaca akan disorot. Ketuk kalimat mana pun untuk melompat ke sana.";var it={id:1,title:"Contoh: Selamat datang",text:txt,n:split(txt).length,w:wc(txt)};items=[it];putItem(it)}
+  items.sort(function(a,b){return b.id-a.id});render();
+  if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();
+}).catch(function(){toast("IndexedDB tidak tersedia di browser ini");render()});
 })();
 </script>
 </body>
