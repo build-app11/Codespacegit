@@ -11,6 +11,7 @@ const { YoutubeTranscript } = require("youtube-transcript");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
+app.use(express.json({ limit: "1mb" }));
 app.use(express.static("public"));
 
 const clean = (t) => t.replace(/\s+/g, " ").trim();
@@ -95,6 +96,43 @@ app.post("/api/file", upload.single("file"), wrap(async (req) => {
   text = clean(text);
   if (!text) throw new Error("Tidak ada teks di file ini (mungkin PDF hasil scan, coba fitur Scan)");
   return { title: name, text };
+}));
+
+// Terjemahan (endpoint web Google Translate, gratis tanpa API key, tidak resmi)
+async function gt(q, tl, dts) {
+  const body = new URLSearchParams({ client: "gtx", sl: "auto", tl, q });
+  dts.forEach((d) => body.append("dt", d));
+  const r = await fetch("https://translate.googleapis.com/translate_a/single", {
+    method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body, signal: AbortSignal.timeout(15000),
+  });
+  if (!r.ok) throw new Error("Layanan terjemahan menolak permintaan (" + r.status + ")");
+  return r.json();
+}
+const segs = (d) => (d[0] || []).map((x) => (x && x[0]) || "").join("");
+
+app.post("/api/translate", wrap(async (req) => {
+  const { texts, tl } = req.body || {};
+  if (!Array.isArray(texts) || !tl || texts.length > 40) throw new Error("Permintaan tidak valid");
+  const out = await gt(texts.join("\n"), tl, ["t"]).then((d) => segs(d).split("\n")).catch(() => null);
+  if (out && out.length === texts.length) return { out };
+  return { out: await Promise.all(texts.map((t) => gt(t, tl, ["t"]).then(segs))) };
+}));
+
+app.get("/api/word", wrap(async (req) => {
+  const { w, s, tl } = req.query;
+  if (!w || w.length > 60 || !tl) throw new Error("Kata tidak valid");
+  const [d, sd] = await Promise.all([gt(w, tl, ["t", "bd", "ex"]), s ? gt(s, tl, ["t"]) : null]);
+  const res = { word: w, translation: segs(d), alts: [], examples: [], sentence: s || "", sentenceTr: sd ? segs(sd) : "" };
+  (d[1] || []).forEach((e) => res.alts.push({ pos: e[0], terms: (e[1] || []).slice(0, 5) }));
+  const ex = (d[13] && d[13][0]) || [];
+  res.examples = ex.slice(0, 3).map((x) => String(x[0]).replace(/<[^>]+>/g, ""));
+  if (res.examples.length) {
+    try {
+      const arr = segs(await gt(res.examples.join("\n"), tl, ["t"])).split("\n");
+      if (arr.length === res.examples.length) res.exTr = arr;
+    } catch (e) {}
+  }
+  return res;
 }));
 
 app.listen(process.env.PORT || 3000, () => console.log("Buka http://localhost:3000"));
