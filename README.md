@@ -1,6 +1,7 @@
 # Suara TTS (full-stack)
+Sumber: Teks biasa, File (txt, md, pdf, docx, html), Scan (OCR), YouTube (subtitle), Web Link.
 
-1. Install Node.js 18+
-2. `npm install`
-3. `npm start`
-4. Buka http://localhost:3000, tekan +, pilih Web Link, tempel URL artikel.
+    npm install
+    npm start
+
+Buka http://localhost:3000 (di Codespaces: tab Ports, port 3000).
