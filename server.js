@@ -7,7 +7,7 @@ const AdmZip = require("adm-zip");
 const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
-const { YoutubeTranscript } = require("youtube-transcript");
+const { fetchYoutube } = require("./yt");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -38,23 +38,13 @@ function fromHtml(html, url) {
   return { title: art.title, text: clean(art.textContent) };
 }
 
-// YouTube (mengambil subtitle/transkrip video)
+// YouTube: lihat yt.js (beberapa jalur pengambilan + pesan error yang jelas)
+// ?lang=xx -> ambil track subtitle bahasa itu apa adanya (bukan terjemahan mesin)
 app.get("/api/youtube", wrap(async (req) => {
   const u = new URL(req.query.url);
   if (!/(^|\.)(youtube\.com|youtu\.be)$/.test(u.hostname)) throw new Error("Bukan link YouTube");
-  let segs = null;
-  for (const lang of ["id", "en", null]) {
-    try { segs = await YoutubeTranscript.fetchTranscript(u.href, lang ? { lang } : undefined); break; } catch (e) { /* coba bahasa lain */ }
-  }
-  if (!segs || !segs.length) throw new Error("Video ini tidak punya subtitle yang bisa diambil");
-  const text = clean(segs.map((s) => s.text).join(" ")
-    .replace(/&amp;#39;|&#39;/g, "'").replace(/&amp;/g, "&").replace(/&quot;/g, '"'));
-  let title = u.href;
-  try {
-    const o = await fetch("https://www.youtube.com/oembed?format=json&url=" + encodeURIComponent(u.href));
-    title = (await o.json()).title || title;
-  } catch (e) {}
-  return { title, text };
+  const r = await fetchYoutube(u.href, req.query.lang ? String(req.query.lang) : "");
+  return { title: r.title, text: clean(r.text), lang: r.lang, langs: r.langs };
 }));
 
 // EPUB: baca urutan bab (spine) lalu ambil teksnya
@@ -116,6 +106,17 @@ app.post("/api/translate", wrap(async (req) => {
   const out = await gt(texts.join("\n"), tl, ["t"]).then((d) => segs(d).split("\n")).catch(() => null);
   if (out && out.length === texts.length) return { out };
   return { out: await Promise.all(texts.map((t) => gt(t, tl, ["t"]).then(segs))) };
+}));
+
+// Deteksi bahasa teks (memakai hasil sl=auto dari Google Translate)
+app.post("/api/detect", wrap(async (req) => {
+  const text = String((req.body && req.body.text) || "").trim().slice(0, 500);
+  if (!text) throw new Error("Teks kosong");
+  const d = await gt(text, "en", ["t"]);
+  let l = String(d[2] || "").trim();
+  l = { iw: "he", jw: "jv", in: "id" }[l] || l;
+  if (!l || l === "auto") throw new Error("Bahasa tidak terdeteksi");
+  return { lang: l };
 }));
 
 app.get("/api/word", wrap(async (req) => {
