@@ -40,6 +40,12 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
 .round{width:54px;height:54px;border-radius:50%;border:0;background:var(--accent);color:var(--accent-ink);font-size:20px;cursor:pointer}
 .small{width:42px;height:42px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
 .ctl select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px;max-width:140px}
+.tr{display:block;font-size:15px;color:var(--muted);line-height:1.5;margin:2px 0 12px}
+.tron .s{display:block}
+.pop{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:none;z-index:25;max-height:65vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.25)}
+.pop.open{display:block}.pin2{max-width:680px;margin:0 auto}.ph{display:flex;justify-content:space-between;align-items:center}
+.pw{font-size:24px;font-weight:700}.pt1{font-size:21px;color:var(--accent);margin:6px 0;font-weight:600}
+.pex{font-size:15px;margin:8px 0;padding-left:10px;border-left:3px solid var(--line)}.pex i{display:block;color:var(--muted);font-style:normal}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
@@ -80,9 +86,13 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
     </div>
     <div class="ctl"><select id="voice" aria-label="Suara"></select>
       <select id="rate" aria-label="Kecepatan"><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
-    <div class="sub" style="text-align:center;margin-top:6px">Durasi adalah perkiraan</div>
+    <div class="ctl"><select id="tl" aria-label="Bahasa terjemahan"><option value="id">Indonesia</option><option value="en">English</option><option value="ms">Melayu</option><option value="ar">العربية</option><option value="zh-CN">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="ru">Русский</option><option value="hi">हिन्दी</option><option value="pt">Português</option><option value="tr">Türkçe</option><option value="th">ไทย</option><option value="nl">Nederlands</option></select>
+      <button class="btn" id="trbtn">🌐 Terjemahkan</button><label class="sub"><input type="checkbox" id="trspeak"> Bacakan terjemahan</label></div>
+    <div class="sub" style="text-align:center;margin-top:6px">Ketuk kata untuk terjemahan. Durasi adalah perkiraan.</div>
   </div></div>
 </div>
+<div class="pop" id="pop"><div class="pin2"><div class="ph"><div class="pw" id="pw"></div><button class="small" id="pclose" aria-label="Tutup">✕</button></div>
+  <div id="pbody"></div><div class="row" style="margin-top:12px"><button class="btn" id="phear">🔊 Ucapkan</button><button class="btn primary" id="pplay">▶ Baca dari sini</button></div></div></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 <script>
 (function(){
@@ -145,15 +155,17 @@ function setPos(i){
   pos=Math.max(0,Math.min(i,sents.length-1));var c=chunkOf(pos),body=$("rbody");
   if(c!==ci){ci=c;body.innerHTML="";var fr=document.createDocumentFragment();
     for(var k=chunks[c].s;k<chunks[c].e;k++){var sp=document.createElement("span");sp.className="s";sp.dataset.i=k;sp.textContent=sents[k]+" ";fr.appendChild(sp)}
-    body.appendChild(fr);$("part").textContent="Bagian "+(c+1)+"/"+chunks.length}
+    body.appendChild(fr);$("part").textContent="Bagian "+(c+1)+"/"+chunks.length;translateChunk()}
   var pv=body.querySelector(".on");if(pv)pv.classList.remove("on");
   var el=body.querySelector('[data-i="'+pos+'"]');if(el){el.classList.add("on");el.scrollIntoView({block:"center",behavior:"smooth"})}
   $("seek").value=pos;updTime();
 }
 function speak(){
   if(!synth||!cur)return;synth.cancel();
-  var u=new SpeechSynthesisUtterance(sents[pos]),v=synth.getVoices().filter(function(x){return x.name===$("voice").value})[0];
-  if(v){u.voice=v;u.lang=v.lang}else u.lang="id-ID";
+  var txt=sents[pos],lang=null,vs=synth.getVoices();
+  if(trOn&&$("trspeak").checked&&trCache[trKey(pos)]){txt=trCache[trKey(pos)];lang=$("tl").value}
+  var u=new SpeechSynthesisUtterance(txt),v=lang?vs.filter(function(x){return x.lang.toLowerCase().indexOf(lang.toLowerCase().slice(0,2))===0})[0]:vs.filter(function(x){return x.name===$("voice").value})[0];
+  if(v){u.voice=v;u.lang=v.lang}else u.lang=lang||"id-ID";
   u.rate=parseFloat($("rate").value);var mine=pos;
   u.onend=function(){if(!playing||pos!==mine)return;
     if(mine>=sents.length-1){prog[cur.id]={pos:0,done:true};saveProg();playing=false;$("play").textContent="▶";toast("Selesai")}
@@ -166,10 +178,60 @@ $("play").onclick=function(){if(!cur)return;if(playing){stop();prog[cur.id]={pos
 $("prev").onclick=function(){go(pos-1)};$("next").onclick=function(){go(pos+1)};
 $("pprev").onclick=function(){go(chunks[Math.max(0,ci-1)].s)};$("pnext").onclick=function(){go(chunks[Math.min(chunks.length-1,ci+1)].s)};
 $("seek").oninput=function(){updTime(+this.value)};$("seek").onchange=function(){go(+this.value)};
-$("rbody").onclick=function(e){var s=e.target.closest(".s");if(s)go(+s.dataset.i,true)};
+$("rbody").onclick=function(e){if(e.target.closest(".tr"))return;var s=e.target.closest(".s");if(!s)return;var w=wordAt(e);if(w)showWord(w,+s.dataset.i);else go(+s.dataset.i,true)};
 $("rate").onchange=function(){updTime();if(playing)speak()};
 $("voice").onchange=function(){try{localStorage.setItem(KEY+"-voice",$("voice").value)}catch(e){}if(playing)speak()};
-$("back").onclick=function(){stop();$("reader").classList.remove("open");cur=null;render()};
+$("back").onclick=function(){stop();ptok++;trTok++;$("pop").classList.remove("open");$("reader").classList.remove("open");cur=null;render()};
+
+/* ---------- Terjemahan ---------- */
+var trOn=false,trCache={},trTok=0,ptok=0,popI=0,popW="";
+function trKey(k){return $("tl").value+"|"+cur.id+"|"+k}
+function wordAt(e){
+  var n,o,t,a,b,re=/[\p{L}\p{N}'’-]/u;
+  if(document.caretPositionFromPoint){var p=document.caretPositionFromPoint(e.clientX,e.clientY);if(p){n=p.offsetNode;o=p.offset}}
+  else if(document.caretRangeFromPoint){var r=document.caretRangeFromPoint(e.clientX,e.clientY);if(r){n=r.startContainer;o=r.startOffset}}
+  if(!n||n.nodeType!==3)return null;t=n.textContent;a=o;b=o;
+  while(a>0&&re.test(t[a-1]))a--;while(b<t.length&&re.test(t[b]))b++;
+  return t.slice(a,b).replace(/^[-'’]+|[-'’]+$/g,"")||null}
+function showWord(w,i){
+  stop();setPos(i);popI=i;popW=w;var tok=++ptok;
+  $("pw").textContent=w;$("pbody").textContent="Memuat…";$("pop").classList.add("open");
+  fetch("/api/word?w="+encodeURIComponent(w)+"&s="+encodeURIComponent(sents[i])+"&tl="+encodeURIComponent($("tl").value))
+    .then(function(r){return r.json()}).then(function(d){
+      if(tok!==ptok)return;if(d.error)throw new Error(d.error);
+      var b=$("pbody");b.innerHTML="";
+      function el(c,t,tr){var x=document.createElement("div");x.className=c;x.textContent=t;if(tr){var i2=document.createElement("i");i2.textContent=tr;x.appendChild(i2)}b.appendChild(x);return x}
+      el("pt1",d.translation);
+      d.alts.forEach(function(a){el("sub",a.pos+": "+a.terms.join(", "))});
+      if(d.examples.length){el("sub","Contoh kalimat").style.marginTop="12px";d.examples.forEach(function(x,k){el("pex",x,d.exTr&&d.exTr[k])})}
+      el("sub","Kalimat di teks").style.marginTop="12px";el("pex",d.sentence,d.sentenceTr);
+    }).catch(function(e){if(tok===ptok)$("pbody").textContent="Gagal: "+e.message});
+}
+$("pclose").onclick=function(){ptok++;$("pop").classList.remove("open")};
+$("pplay").onclick=function(){ptok++;$("pop").classList.remove("open");go(popI,true)};
+$("phear").onclick=function(){if(!synth)return;synth.cancel();var u=new SpeechSynthesisUtterance(popW),v=synth.getVoices().filter(function(x){return x.name===$("voice").value})[0];if(v){u.voice=v;u.lang=v.lang}synth.speak(u)};
+function applyTr(k){
+  var t=trCache[trKey(k)],sp=$("rbody").querySelector('[data-i="'+k+'"]');
+  if(!t||!sp||(sp.nextElementSibling&&sp.nextElementSibling.classList.contains("tr")))return;
+  var x=document.createElement("span");x.className="tr";x.textContent=t;sp.after(x)}
+function translateChunk(){
+  $("rbody").classList.toggle("tron",trOn);if(!trOn||ci<0||!cur)return;
+  var c=chunks[ci],tok=++trTok,todo=[];
+  for(var k=c.s;k<c.e;k++){if(trCache[trKey(k)])applyTr(k);else todo.push(k)}
+  todo=todo.filter(function(k){return k>=pos}).concat(todo.filter(function(k){return k<pos}));
+  (function next(){
+    if(tok!==trTok||!todo.length)return;var b=todo.splice(0,15),tl=$("tl").value,id=cur.id;
+    fetch("/api/translate",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({tl:tl,texts:b.map(function(k){return sents[k]})})})
+      .then(function(r){return r.json()}).then(function(d){
+        if(d.error)throw new Error(d.error);if(tok!==trTok)return;
+        d.out.forEach(function(t,j){trCache[tl+"|"+id+"|"+b[j]]=t;applyTr(b[j])});next()
+      }).catch(function(e){toast("Terjemahan gagal: "+e.message)});
+  })();
+}
+$("trbtn").onclick=function(){trOn=!trOn;this.textContent=trOn?"🌐 Terjemahan: ON":"🌐 Terjemahkan";
+  if(!trOn){trTok++;[].forEach.call($("rbody").querySelectorAll(".tr"),function(x){x.remove()})}translateChunk()};
+$("tl").onchange=function(){try{localStorage.setItem(KEY+"-tl",this.value)}catch(e){}
+  if(trOn){trTok++;[].forEach.call($("rbody").querySelectorAll(".tr"),function(x){x.remove()});translateChunk()}};
 
 /* ---------- Library & tambah ---------- */
 document.querySelectorAll(".tab").forEach(function(b){b.onclick=function(){tab=b.dataset.t;document.querySelectorAll(".tab").forEach(function(x){x.setAttribute("aria-selected",x===b)});render()}});
@@ -192,6 +254,7 @@ $("scan").onchange=function(){
   })();
 };
 try{prog=JSON.parse(localStorage.getItem(PK)||"{}")}catch(e){}
+try{var sl=localStorage.getItem(KEY+"-tl");if(sl)$("tl").value=sl}catch(e){}
 if(synth){voices();synth.onvoiceschanged=voices}else toast("Browser tidak mendukung text-to-speech");
 idb().then(function(d){db=d;return run("readonly",function(s){return s.getAll()})}).then(function(r){
   items=r||[];
