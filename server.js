@@ -3,13 +3,14 @@ const dns = require("dns").promises;
 const net = require("net");
 const multer = require("multer");
 const mammoth = require("mammoth");
+const AdmZip = require("adm-zip");
 const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
 const { YoutubeTranscript } = require("youtube-transcript");
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 20 * 1024 * 1024 } });
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 app.use(express.static("public"));
 
 const clean = (t) => t.replace(/\s+/g, " ").trim();
@@ -55,6 +56,29 @@ app.get("/api/youtube", wrap(async (req) => {
   return { title, text };
 }));
 
+// EPUB: baca urutan bab (spine) lalu ambil teksnya
+function fromEpub(buf) {
+  const zip = new AdmZip(buf);
+  const read = (p) => { const e = zip.getEntry(p); return e ? e.getData().toString("utf8") : ""; };
+  const opfPath = (read("META-INF/container.xml").match(/full-path="([^"]+)"/) || [])[1];
+  if (!opfPath) throw new Error("EPUB tidak valid");
+  const opf = read(opfPath), dir = opfPath.includes("/") ? opfPath.replace(/[^/]+$/, "") : "";
+  const manifest = {};
+  (opf.match(/<item\b[^>]*>/g) || []).forEach((t) => {
+    const id = (t.match(/\bid="([^"]+)"/) || [])[1], href = (t.match(/\bhref="([^"]+)"/) || [])[1];
+    if (id && href) manifest[id] = href;
+  });
+  const parts = [];
+  for (const m of opf.matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)) {
+    const href = manifest[m[1]];
+    if (!href) continue;
+    const html = read(dir + decodeURIComponent(href.split("#")[0]));
+    if (html) parts.push(new JSDOM(html).window.document.body.textContent);
+  }
+  const title = ((opf.match(/<dc:title[^>]*>([^<]+)/) || [])[1] || "").trim();
+  return { title, text: clean(parts.join(" ")) };
+}
+
 // File: PDF, DOCX, HTML, TXT, MD
 app.post("/api/file", upload.single("file"), wrap(async (req) => {
   const f = req.file;
@@ -64,6 +88,7 @@ app.post("/api/file", upload.single("file"), wrap(async (req) => {
   let text = "";
   if (ext === "pdf") text = (await pdfParse(f.buffer)).text;
   else if (ext === "docx") text = (await mammoth.extractRawText({ buffer: f.buffer })).value;
+  else if (ext === "epub") { const r = fromEpub(f.buffer); text = r.text; if (r.title) return { title: r.title, text }; }
   else if (ext === "html" || ext === "htm") text = fromHtml(f.buffer.toString("utf8")).text;
   else if (ext === "txt" || ext === "md") text = f.buffer.toString("utf8");
   else throw new Error("Format ." + ext + " belum didukung");

@@ -1,5 +1,5 @@
 # Suara TTS (full-stack)
-Sumber: Teks biasa, File (txt, md, pdf, docx, html), Scan (OCR), YouTube (subtitle), Web Link.
+Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (multi-foto, OCR), YouTube, Web Link.
 
     npm install
     npm start
