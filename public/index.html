@@ -49,6 +49,7 @@ textarea{min-height:200px;resize:vertical}
 .small{width:40px;height:40px;border-radius:50%;border:1px solid var(--line);background:var(--bg);color:var(--text);cursor:pointer}
 .warn{background:var(--surface);border:1px solid var(--danger);color:var(--danger);border-radius:12px;padding:10px 12px;font-size:14px;margin-bottom:12px;display:none}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
+.toast{position:fixed;left:50%;top:calc(16px + env(safe-area-inset-top,0px));transform:translateX(-50%);background:var(--text);color:var(--bg);padding:10px 18px;border-radius:999px;font-size:14px;display:none;z-index:20;max-width:90vw}
 </style>
 </head>
 <body>
@@ -66,11 +67,16 @@ textarea{min-height:200px;resize:vertical}
 
 <div class="menu" id="menu">
   <button data-add="text">Teks biasa</button>
+  <button data-add="file">File</button>
+  <button data-add="scan">Scan</button>
+  <button data-add="yt">YouTube</button>
   <button data-add="link">Web Link</button>
-  <button data-add="file">File .txt</button>
 </div>
 <button class="fab" id="fab" aria-label="Tambah teks">+</button>
-<input type="file" id="file" accept=".txt,.md,text/plain" hidden>
+<input type="file" id="file" accept=".txt,.md,.pdf,.docx,.html,.htm" hidden>
+<input type="file" id="scan" accept="image/*" capture="environment" hidden>
+<div class="toast" id="toast" role="status"></div>
+<script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
 
 <dialog id="dlg">
   <h2 style="margin:0 0 12px;font-size:20px">Tambah teks</h2>
@@ -171,14 +177,22 @@ textarea{min-height:200px;resize:vertical}
   $("menu").onclick=function(e){
     var t=e.target.dataset.add;if(!t)return;closeMenu();
     if(t==="text"){$("dtitle").value="";$("dbody").value="";$("dlg").showModal()}
-    else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)fetchLink(u.trim())}
+    else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)remote("/api/extract?url="+encodeURIComponent(u.trim()),u)}
+    else if(t==="yt"){var y=prompt("Tempel link YouTube (video harus punya subtitle)");if(y)remote("/api/youtube?url="+encodeURIComponent(y.trim()),y)}
+    else if(t==="scan")$("scan").click();
     else $("file").click();
   };
-  function fetchLink(u){
-    fetch("/api/extract?url="+encodeURIComponent(u)).then(function(r){return r.json()}).then(function(d){
-      if(d.error)throw new Error(d.error);
-      items.unshift({id:Date.now(),title:d.title||u,text:d.text,pos:0,done:false});save();render();
-    }).catch(function(e){alert("Gagal memproses link: "+e.message)});
+  var tt;
+  function toast(m,keep){var t=$("toast");t.textContent=m;t.style.display="block";clearTimeout(tt);if(!keep)tt=setTimeout(function(){t.style.display="none"},4000)}
+  function add(title,text){
+    if(!text||!text.trim())throw new Error("Tidak ada teks yang terbaca");
+    items.unshift({id:Date.now(),title:title,text:text.trim(),pos:0,done:false});save();render();toast("Ditambahkan ke Library");
+  }
+  function remote(url,fallback,opts){
+    toast("Memproses…",true);
+    return fetch(url,opts).then(function(r){return r.json()}).then(function(d){
+      if(d.error)throw new Error(d.error);add(d.title||fallback,d.text);
+    }).catch(function(e){toast("Gagal: "+e.message)});
   }
   $("dcancel").onclick=function(){$("dlg").close()};
   $("dsave").onclick=function(){
@@ -187,9 +201,17 @@ textarea{min-height:200px;resize:vertical}
     save();$("dlg").close();render();
   };
   $("file").onchange=function(){
-    var f=this.files[0];if(!f)return;var r=new FileReader();
-    r.onload=function(){items.unshift({id:Date.now(),title:f.name.replace(/\.\w+$/,""),text:String(r.result).trim(),pos:0,done:false});save();render()};
-    r.readAsText(f);this.value="";
+    var f=this.files[0];this.value="";if(!f)return;
+    var fd=new FormData();fd.append("file",f);
+    remote("/api/file",f.name,{method:"POST",body:fd});
+  };
+  $("scan").onchange=function(){
+    var f=this.files[0];this.value="";if(!f)return;
+    if(!window.Tesseract){toast("Modul OCR gagal dimuat. Cek koneksi internet.");return}
+    toast("Membaca gambar… (bisa memakan waktu)",true);
+    Tesseract.recognize(f,"ind+eng",{logger:function(m){if(m.status==="recognizing text")toast("Membaca gambar… "+Math.round(m.progress*100)+"%",true)}})
+      .then(function(r){add("Scan "+new Date().toLocaleString("id-ID"),r.data.text.replace(/\s+/g," "))})
+      .catch(function(e){toast("Gagal: "+e.message)});
   };
 
   if(!synth)$("warn").style.display="block";
