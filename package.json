@@ -1,11 +1,12 @@
 {
   "name": "suara-tts",
-  "version": "3.1.0",
+  "version": "3.2.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
     "phon:test": "node test-phon.js",
-    "podcast:test": "node test-podcast.js"
+    "podcast:test": "node test-podcast.js",
+    "news:test": "node test-news.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

@@ -1,5 +1,5 @@
 # Suara TTS (full-stack)
-Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (kamera langsung atau galeri, OCR), Web Link.
+Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (kamera langsung atau galeri, OCR), Web Link, Berita (RSS), Podcast (RSS).
 
     npm install
     npm start
@@ -53,3 +53,11 @@ Cara kerja: server mengunduh audio ke file sementara (maks. 400 MB, dihapus sete
 - Satu transkripsi dalam satu waktu. Menutup dialog atau menekan **Batalkan** menghentikan proses di server.
 - `ffmpeg-static` dan `@huggingface/transformers` adalah `optionalDependencies`; bila gagal terpasang, fitur lain tetap jalan. Cek di `/api/podcast/status`. `npm run podcast:test` menguji pembaca RSS, unduhan, decode, dan pemotongan jendela dengan ASR tiruan (tanpa model).
 - Podcast berbayar atau yang butuh login tidak didukung. Alamat jaringan privat ditolak.
+
+## Berita (RSS)
+Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tekan **Muat**. Alamat situs berita biasa (bukan alamat feed) juga boleh; feed-nya dicari otomatis lewat tag `<link rel="alternate">` di halaman itu. Daftar artikel menampilkan judul, waktu, sumber, dan cuplikan. Tombol **+ Library** mengambil isi lengkap artikel di server (Readability, sama seperti Web Link) dan menyimpannya ke Library, lalu bisa dibaca, diterjemahkan, dan diberi IPA seperti teks lain. Bila halaman artikel tidak bisa dimuat (atau isinya lebih pendek dari ringkasan di feed), yang disimpan adalah ringkasan dari feed.
+
+- **Simpan feed** menyimpan feed ke daftar chip di atas daftar artikel (maks. 20, ketuk untuk memuat, **×** untuk menghapus). Artikel yang sudah ditambahkan diberi tanda ✓ (menyimpan 300 tautan terakhir). Semuanya ada di localStorage dan ikut Ekspor/Impor Library.
+- Maksimal 100 artikel per feed; ukuran feed maks. 10 MB, halaman artikel maks. 5 MB.
+- Alamat jaringan privat ditolak, termasuk saat ada pengalihan. Artikel berbayar atau yang butuh login tidak didukung.
+- Tidak butuh paket tambahan. `npm run news:test` menguji pembaca feed tanpa jaringan.

@@ -9,6 +9,7 @@ const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
 const phon = require("./phon");
 const podcast = require("./podcast");
+const news = require("./news");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -130,6 +131,35 @@ app.post("/api/podcast/transcribe", async (req, res) => {
   }
 });
 app.get("/api/podcast/status", wrap(async () => podcast.status()));
+
+// ---------- Berita (RSS) ----------
+// Feed RSS 2.0 / Atom / RSS 1.0 -> daftar artikel. Bila yang ditempel adalah alamat situs (HTML), feed-nya dicari
+// lewat <link rel="alternate"> lalu dimuat. Semua pengambilan lewat safeFetch (alamat privat ditolak, termasuk di pengalihan).
+const NEWS_UA = "Mozilla/5.0 (compatible; SuaraTTS/3.2)";
+app.get("/api/news/feed", wrap(async (req) => {
+  let url = req.query.url;
+  for (let hop = 0; hop < 2; hop++) {
+    const r = await safeFetch(url, { headers: { "User-Agent": NEWS_UA, Accept: "application/rss+xml, application/atom+xml, application/xml;q=0.9, text/xml;q=0.9, text/html;q=0.6, */*;q=0.5" }, signal: AbortSignal.timeout(20000) });
+    if (!r.ok) throw new Error("Server membalas dengan status " + r.status);
+    const body = (await readLimited(r, 10 * 1024 * 1024)).toString("utf8");
+    try {
+      return Object.assign(news.parseNews(body, { base: r.finalUrl }), { url: r.finalUrl });
+    } catch (e) {
+      const found = hop === 0 ? news.discoverFeeds(body, r.finalUrl) : [];
+      if (!found.length) throw e;
+      url = found[0];
+    }
+  }
+}));
+
+// Isi lengkap satu artikel (Readability), dipakai saat artikel ditambahkan ke Library.
+app.get("/api/news/article", wrap(async (req) => {
+  const r = await safeFetch(req.query.url, { headers: { "User-Agent": NEWS_UA, Accept: "text/html, application/xhtml+xml;q=0.9, */*;q=0.5" }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error("Situs membalas dengan status " + r.status);
+  const ct = (r.headers.get("content-type") || "").toLowerCase();
+  if (/^(audio|video|image)\//.test(ct) || /pdf/.test(ct)) { try { await r.body.cancel(); } catch (e) {} throw new Error("Tautan ini bukan halaman artikel"); }
+  return fromHtml((await readLimited(r, 5 * 1024 * 1024)).toString("utf8"), r.finalUrl);
+}));
 
 // Audio MP3 untuk fitur unduh. Memakai endpoint suara Google Translate (tidak resmi), dipotong <= 180 karakter per permintaan.
 function ttsLang(x) {
