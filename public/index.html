@@ -680,19 +680,23 @@ function nDate(iso){
   if(!iso)return "";var d=new Date(iso);if(isNaN(d))return "";
   try{return d.toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}catch(e){return iso.slice(0,10)}}
 function nHost(u){try{return new URL(u).hostname.replace(/^www\./,"")}catch(e){return ""}}
-// Isi lengkap lewat server; bila gagal atau lebih pendek dari ringkasan feed, pakai ringkasan feed.
+// Selalu isi lengkap: dari halaman artikel; isi penuh dari feed (content:encoded) hanya dipakai bila halaman gagal diambil
+// atau lebih pendek. Ringkasan/deskripsi pendek dari feed tidak pernah disimpan.
 function nText(a){
-  var sum=a.summary||"";
+  var feedFull=(a.content||"").length>=200?a.content:"",pgs=1;
   return fetch("/api/news/article?url="+encodeURIComponent(a.link)).then(function(r){return r.json()}).then(function(d){
-    if(d.error)throw new Error(d.error);
-    if(!d.text)throw new Error("Isi artikel kosong");
-    return (d.text.length<200&&sum.length>d.text.length)?sum:d.text
-  }).catch(function(e){if(sum.length>=60)return sum;throw e})}
+    if(d.error)throw new Error(d.error);pgs=d.pages||1;return d.text||""
+  }).catch(function(e){if(feedFull)return "";throw new Error("Isi lengkap artikel tidak bisa diambil ("+e.message+"). Mungkin berbayar atau memblokir akses.")})
+  .then(function(t){
+    var best=feedFull.length>t.length?feedFull:t;
+    if(!best)throw new Error("Isi lengkap artikel tidak ditemukan. Mungkin berbayar atau memblokir akses.");
+    return {text:best,pages:best===t?pgs:1}})}
 function nAdd(a,card){
   var btn=card.querySelector(".nadd");btn.disabled=true;btn.textContent="Memuat…";
-  nText(a).then(function(text){
-    add(a.title,text);nMark(a.link);card.classList.add("done");btn.textContent="✓ Ditambahkan";
-    $("nmsg").textContent="Ditambahkan ke Library: "+a.title;
+  nText(a).then(function(res){
+    var text=res.text;add(a.title,text);nMark(a.link);card.classList.add("done");btn.textContent="✓ Ditambahkan";
+    var n=text.split(/\s+/).length;
+    $("nmsg").textContent="Ditambahkan ke Library ("+n+" kata"+(res.pages>1?", "+res.pages+" halaman":"")+"): "+a.title+(n<120?". Teksnya pendek, mungkin artikel berbayar atau dibatasi; cek lewat Sumber ↗.":"");
   }).catch(function(e){btn.disabled=false;btn.textContent="+ Library";$("nmsg").textContent="Gagal: "+e.message})}
 function nShow(){
   var box=$("nlist"),fr=document.createDocumentFragment();box.innerHTML="";
