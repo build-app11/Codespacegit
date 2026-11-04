@@ -120,13 +120,15 @@ app.post("/api/detect", wrap(async (req) => {
   return { lang: l };
 }));
 
-// Fonetik per kalimat (lokal, tanpa layanan luar): romanisasi + IPA untuk ditampilkan di bawah teks utama
+// Fonetik per kata (lokal): tiap kalimat dikembalikan sebagai daftar segmen untuk ditampilkan di bawah tiap kata
 app.post("/api/phon", wrap(async (req) => {
   const { texts, l, rm, ip } = req.body || {};
   if (!Array.isArray(texts) || !texts.length || texts.length > 6) throw new Error("Permintaan tidak valid");
   const L = String(l || ""), want = { rm: !!rm, ip: !!ip && !!L };
-  const r = await Promise.all(texts.map((t) => phon.analyze(t, L, want)));
-  return { rm: r.map((x) => (want.rm ? x.rm : null)), ip: r.map((x) => (want.ip ? x.ip : null)) };
+  const r = await Promise.all(texts.map((t) => phon.analyzeWords(String(t), L, want).catch(() => null)));
+  return { items: r.map((ws) => (ws ? {
+    t: ws.map((x) => x.t), wl: ws.map((x) => (x.wl ? 1 : 0)),
+    rm: want.rm ? ws.map((x) => x.rm || "") : null, ip: want.ip ? ws.map((x) => x.ip || "") : null } : null)) };
 }));
 app.get("/api/phon/status", wrap(async () => phon.status()));
 

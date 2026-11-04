@@ -20,7 +20,7 @@ Di pembaca, video YouTube yang punya beberapa subtitle menampilkan pilihan **Bah
 Pengambilan subtitle ada di `yt.js`: mencoba klien InnerTube (Android, iOS, TV embed, Web), lalu halaman watch, lalu library `youtube-transcript` sebagai cadangan. Kalau gagal, pesan error menyebut alasan sebenarnya. Jika YouTube memblokir IP server (umum di Codespaces/cloud), jalankan di komputer sendiri atau set `YT_COOKIE` (string cookie akun YouTube) sebelum `npm start`.
 
 ## IPA dan romanisasi (lokal)
-Di bawah setiap kalimat utama ada baris **romanisasi** (aksara non-Latin) dan **IPA**, bisa dimatikan lewat kotak centang di pembaca. Mengetuk kata menampilkan hal yang sama untuk kata itu. Semuanya dihitung di server dengan library, tanpa Wiktionary atau Google Translate:
+Di bawah **setiap kata** pada teks utama ada **romanisasi** (aksara non-Latin) dan **IPA** kecil, seperti teks interlinear; bisa dimatikan lewat kotak centang di pembaca. Jepang dibagi per kata (morfem kuromoji), Mandarin per aksara, bahasa lain per kata menurut `Intl.Segmenter`. Mengetuk kata (atau anotasinya) membuka popup arti. Kalimat utuh dikirim ke espeak-ng lebih dulu supaya IPA kata sadar konteks; bila jumlah katanya tidak cocok, tiap kata diproses sendiri. Semuanya dihitung di server dengan library, tanpa Wiktionary atau Google Translate:
 
 | Bahasa | Romanisasi | IPA |
 |---|---|---|

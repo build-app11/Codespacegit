@@ -1,6 +1,6 @@
 {
   "name": "suara-tts",
-  "version": "2.5.0",
+  "version": "2.6.0",
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
