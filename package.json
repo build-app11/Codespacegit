@@ -1,8 +1,11 @@
 {
   "name": "suara-tts",
-  "version": "2.1.0",
+  "version": "2.5.0",
   "main": "server.js",
-  "scripts": { "start": "node server.js" },
+  "scripts": {
+    "start": "node server.js",
+    "phon:test": "node test-phon.js"
+  },
   "dependencies": {
     "adm-zip": "^0.5.14",
     "@mozilla/readability": "^0.5.0",
@@ -12,5 +15,14 @@
     "multer": "^1.4.5-lts.1",
     "pdf-parse": "^1.1.1",
     "youtube-transcript": "^1.2.1"
+  },
+  "optionalDependencies": {
+    "kuromoji": "^0.1.2",
+    "pinyin-pro": "^3.0.0",
+    "any-ascii": "^0.3.0",
+    "phonemizer": "^1.2.1"
+  },
+  "engines": {
+    "node": ">=18"
   }
 }

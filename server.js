@@ -8,6 +8,7 @@ const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
 const { fetchYoutube } = require("./yt");
+const phon = require("./phon");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -119,11 +120,27 @@ app.post("/api/detect", wrap(async (req) => {
   return { lang: l };
 }));
 
+// Fonetik per kalimat (lokal, tanpa layanan luar): romanisasi + IPA untuk ditampilkan di bawah teks utama
+app.post("/api/phon", wrap(async (req) => {
+  const { texts, l, rm, ip } = req.body || {};
+  if (!Array.isArray(texts) || !texts.length || texts.length > 6) throw new Error("Permintaan tidak valid");
+  const L = String(l || ""), want = { rm: !!rm, ip: !!ip && !!L };
+  const r = await Promise.all(texts.map((t) => phon.analyze(t, L, want)));
+  return { rm: r.map((x) => (want.rm ? x.rm : null)), ip: r.map((x) => (want.ip ? x.ip : null)) };
+}));
+app.get("/api/phon/status", wrap(async () => phon.status()));
+
 app.get("/api/word", wrap(async (req) => {
-  const { w, s, tl } = req.query;
+  const { w, s, tl } = req.query, L = String(req.query.l || "");
   if (!w || w.length > 60 || !tl) throw new Error("Kata tidak valid");
   const [d, sd] = await Promise.all([gt(w, tl, ["t", "bd", "ex"]), s ? gt(s, tl, ["t"]) : null]);
-  const res = { word: w, translation: segs(d), alts: [], examples: [], sentence: s || "", sentenceTr: sd ? segs(sd) : "" };
+  const lang = L || String(d[2] || "");
+  const [pw, ps] = await Promise.all([
+    phon.analyze(w, lang, { rm: true, ip: true }).catch(() => ({ rm: "", ip: "" })),
+    s && s.length <= 400 ? phon.analyze(s, lang, { rm: true, ip: false }).catch(() => ({ rm: "", ip: "" })) : { rm: "", ip: "" },
+  ]);
+  const res = { word: w, translation: segs(d), alts: [], examples: [], sentence: s || "", sentenceTr: sd ? segs(sd) : "",
+    translit: pw.rm, sentenceTranslit: ps.rm, ipa: pw.ip ? ["/" + pw.ip + "/"] : [] };
   (d[1] || []).forEach((e) => res.alts.push({ pos: e[0], terms: (e[1] || []).slice(0, 5) }));
   const ex = (d[13] && d[13][0]) || [];
   res.examples = ex.slice(0, 3).map((x) => String(x[0]).replace(/<[^>]+>/g, ""));
@@ -136,4 +153,7 @@ app.get("/api/word", wrap(async (req) => {
   return res;
 }));
 
-app.listen(process.env.PORT || 3000, () => console.log("Buka http://localhost:3000"));
+app.listen(process.env.PORT || 3000, () => {
+  console.log("Buka http://localhost:3000");
+  phon.status().then((st) => console.log("Fonetik:", JSON.stringify(st))).catch(() => {});   // sekaligus memanaskan kamus
+});
