@@ -1,23 +1,18 @@
 # Suara TTS (full-stack)
-Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (multi-foto, OCR), YouTube, Web Link.
+Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (kamera langsung atau galeri, OCR), Web Link.
 
     npm install
     npm start
 
 Buka http://localhost:3000 (di Codespaces: tab Ports, port 3000).
 
-## Bahasa utama (YouTube)
-Di pembaca, video YouTube yang punya beberapa subtitle menampilkan pilihan **Bahasa utama**. Ini mengambil subtitle asli bahasa itu (bukan terjemahan mesin) dan suara bacaan ikut berpindah ke bahasa tersebut. Terjemahan tetap fitur terpisah (tombol 🌐), jadi tampilannya dual language.
+## Bahasa utama, terjemahan, dan sorotan
 
-## Fitur bahasa & sorotan
-
-- **Bahasa utama untuk semua sumber** (teks, PDF, EPUB, DOCX, scan, web link, YouTube). Bahasa teks terdeteksi otomatis lewat `/api/detect`. Pilih bahasa lain di dropdown "Bahasa utama" dan teks dibaca dalam bahasa itu, dengan suara yang ikut berganti. Untuk YouTube, subtitle asli tetap ditawarkan lebih dulu; bahasa lain memakai terjemahan mesin.
+- **Bahasa utama untuk semua sumber** (teks, PDF, EPUB, DOCX, scan, web link). Bahasa teks terdeteksi otomatis lewat `/api/detect`. Pilih bahasa lain di dropdown "Bahasa utama" dan teks dibaca dalam bahasa itu, dengan suara yang ikut berganti.
 - Terjemahan bahasa utama dikerjakan bertahap (15 kalimat per permintaan, 75 kalimat ke depan) dan tersimpan di memori selama sesi. Posisi baca dan progres tidak berubah karena penomoran kalimat mengikuti teks asli.
 - **Baris terjemahan di bawah** selalu diterjemahkan dari teks asli, bukan dari bahasa utama, supaya tidak terjemah dua kali. Suaranya dipilih terpisah lewat dropdown suara terjemahan.
 - **Sorotan per kata** saat membaca. Memakai event `boundary` dari text-to-speech; kalau suara tidak mengirim event itu, posisi kata diperkirakan dari waktu.
 
-## YouTube
-Pengambilan subtitle ada di `yt.js`: mencoba klien InnerTube (Android, iOS, TV embed, Web), lalu halaman watch, lalu library `youtube-transcript` sebagai cadangan. Kalau gagal, pesan error menyebut alasan sebenarnya. Jika YouTube memblokir IP server (umum di Codespaces/cloud), jalankan di komputer sendiri atau set `YT_COOKIE` (string cookie akun YouTube) sebelum `npm start`.
 
 ## IPA dan romanisasi (lokal)
 Di bawah **setiap kata** pada teks utama ada **romanisasi** (aksara non-Latin) dan **IPA** kecil, seperti teks interlinear; bisa dimatikan lewat kotak centang di pembaca. Jepang dibagi per kata (morfem kuromoji), Mandarin per aksara, bahasa lain per kata menurut `Intl.Segmenter`. Mengetuk kata (atau anotasinya) membuka popup arti. Kalimat utuh dikirim ke espeak-ng lebih dulu supaya IPA kata sadar konteks; bila jumlah katanya tidak cocok, tiap kata diproses sendiri. Semuanya dihitung di server dengan library, tanpa Wiktionary atau Google Translate:
@@ -34,3 +29,27 @@ espeak-ng dipakai lewat paket `phonemizer` (WebAssembly). Paket opsional (`optio
 
 Catatan: kuromoji memuat kamus (~17 MB) sekali saat server start. Romanisasi Arab/Ibrani tanpa tanda vokal hanya berisi konsonan, dan Hindi/Thai lewat any-ascii hanya perkiraan.
 
+
+## Scan dokumen lewat kamera
+Menu **Scan dokumen** membuka kamera langsung di halaman (butuh HTTPS atau localhost, dan izin kamera). Ambil satu atau beberapa halaman, pilih bahasa teks, lalu OCR (tesseract.js) berjalan di browser. Tombol **Galeri** tetap tersedia, dan bila kamera tidak bisa dibuka, tombol foto memakai kamera bawaan perangkat.
+
+## Unduh audio
+Tombol ⬇ di pembaca mengunduh MP3 untuk kalimat ini, bagian ini, dari sini sampai akhir, atau seluruh teks (maks. 30.000 karakter per unduhan). Audio dibuat oleh server lewat endpoint suara Google Translate (tidak resmi, bisa dibatasi sewaktu-waktu), jadi suaranya bukan suara perangkat yang dipilih di pemutar. Bila bahasa utama berupa terjemahan mesin, teksnya diterjemahkan dulu.
+
+## Hapus semua data
+Di bawah daftar Library ada ringkasan penyimpanan dan tombol **Hapus semua data**: menghapus IndexedDB (teks, termasuk data bahasa OCR), localStorage/sessionStorage (progres, pengaturan, pilihan suara), Cache Storage, dan service worker, lalu memuat ulang halaman. Server tidak menyimpan data pengguna.
+
+
+## Ekspor dan impor Library
+Di bawah daftar Library ada tombol **Ekspor** dan **Impor**. Ekspor menyimpan semua teks, progres baca, dan pengaturan ke satu file `suara-backup-TANGGAL.json`; ini cara memindahkan Library ke perangkat lain atau mencadangkannya sebelum **Hapus semua data**. Impor bersifat menambah, bukan menimpa: teks yang sama persis (judul dan isi) dilewati, teks dengan id yang bentrok diberi id baru, progres teks yang diimpor ikut dipulihkan, dan pengaturan hanya diisi bila belum ada di perangkat ini. File dengan format lain (bukan hasil ekspor) ditolak. Teks tunggal bisa diimpor lewat menu + (File) seperti biasa.
+
+## Podcast (RSS) ke teks
+Menu **+ > Podcast (RSS) → teks**: tempel URL RSS podcast (atau link langsung ke file `.mp3`/`.m4a`), tekan **Muat**, pilih episode, putar audionya, lalu **Mulai transkripsi**. Teks muncul bertahap, tiap baris bertanda waktu; baris yang sedang diputar disorot, dan mengetuk baris melompat ke bagian itu di audio. Kotak **Mulai dari posisi putar** membuat transkripsi dimulai dari detik audio yang sedang diputar. Hasilnya bisa disimpan lewat **Simpan** ke Library (lalu dibaca, diterjemahkan, dan diberi IPA seperti teks lain) atau diunduh sebagai TXT / SRT.
+
+Cara kerja: server mengunduh audio ke file sementara (maks. 400 MB, dihapus setelah selesai), ffmpeg mengubahnya ke 16 kHz mono, lalu model **Whisper** (`@huggingface/transformers`, jalan lokal di server, tanpa API key) memprosesnya per jendela 30 detik. Jendela yang berakhir di tengah kalimat dipotong di batas segmen terakhir yang utuh supaya kata tidak terpotong, dan jendela yang sepenuhnya hening dilewati.
+
+- Model: **tiny** (cepat), **base** (seimbang), **small** (akurat). Diunduh dari Hugging Face sekali saja lalu disimpan di folder `models/` (kira-kira 40, 80, dan 250 MB). Pemakaian pertama jadi lebih lama.
+- Berjalan di CPU server, jadi kecepatannya tergantung mesin (belum diukur di Codespaces). Model yang lebih besar lebih akurat tetapi lebih lambat; mulai dari `base`, turun ke `tiny` bila terlalu lambat atau naik ke `small` bila hasilnya kurang akurat. Pilih bahasa audio secara manual bila deteksi otomatis keliru.
+- Satu transkripsi dalam satu waktu. Menutup dialog atau menekan **Batalkan** menghentikan proses di server.
+- `ffmpeg-static` dan `@huggingface/transformers` adalah `optionalDependencies`; bila gagal terpasang, fitur lain tetap jalan. Cek di `/api/podcast/status`. `npm run podcast:test` menguji pembaca RSS, unduhan, decode, dan pemotongan jendela dengan ASR tiruan (tanpa model).
+- Podcast berbayar atau yang butuh login tidak didukung. Alamat jaringan privat ditolak.

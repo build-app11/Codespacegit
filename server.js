@@ -7,8 +7,11 @@ const AdmZip = require("adm-zip");
 const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { JSDOM } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
-const { fetchYoutube } = require("./yt");
 const phon = require("./phon");
+const podcast = require("./podcast");
+const fs = require("fs");
+const os = require("os");
+const path = require("path");
 
 const app = express();
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
@@ -39,14 +42,128 @@ function fromHtml(html, url) {
   return { title: art.title, text: clean(art.textContent) };
 }
 
-// YouTube: lihat yt.js (beberapa jalur pengambilan + pesan error yang jelas)
-// ?lang=xx -> ambil track subtitle bahasa itu apa adanya (bukan terjemahan mesin)
-app.get("/api/youtube", wrap(async (req) => {
-  const u = new URL(req.query.url);
-  if (!/(^|\.)(youtube\.com|youtu\.be)$/.test(u.hostname)) throw new Error("Bukan link YouTube");
-  const r = await fetchYoutube(u.href, req.query.lang ? String(req.query.lang) : "");
-  return { title: r.title, text: clean(r.text), lang: r.lang, langs: r.langs };
+// ---------- Podcast (RSS) -> teks ----------
+// fetch yang memeriksa alamat tujuan di setiap pengalihan (podcast hampir selalu lewat redirect pelacak)
+async function safeFetch(url, opts, hops = 5) {
+  let u;
+  try { u = new URL(String(url || "").trim()); } catch (e) { throw new Error("URL tidak valid"); }
+  for (let i = 0; i <= hops; i++) {
+    if (!["http:", "https:"].includes(u.protocol)) throw new Error("URL harus http atau https");
+    const ip = net.isIP(u.hostname) ? u.hostname : (await dns.lookup(u.hostname)).address;
+    if (isPrivate(ip)) throw new Error("Alamat tidak diizinkan");
+    const r = await fetch(u, Object.assign({}, opts, { redirect: "manual" }));
+    const loc = r.headers.get("location");
+    if (r.status >= 300 && r.status < 400 && loc) { try { await r.body.cancel(); } catch (e) {} u = new URL(loc, u); continue; }
+    r.finalUrl = u.href;
+    return r;
+  }
+  throw new Error("Terlalu banyak pengalihan");
+}
+async function readLimited(r, max) {
+  const parts = []; let n = 0;
+  for await (const c of r.body) { n += c.length; if (n > max) throw new Error("Respons terlalu besar"); parts.push(c); }
+  return Buffer.concat(parts);
+}
+const POD_UA = "Mozilla/5.0 (compatible; SuaraTTS/3.1)";
+const AUDIO_EXT = /\.(mp3|m4a|aac|ogg|oga|opus|wav|flac|mp4|webm)$/i;
+
+// URL feed RSS -> daftar episode. URL langsung ke file audio juga diterima (jadi satu episode).
+app.get("/api/podcast/feed", wrap(async (req) => {
+  const r = await safeFetch(req.query.url, { headers: { "User-Agent": POD_UA, Accept: "application/rss+xml, application/xml;q=0.9, text/xml;q=0.9, */*;q=0.5" }, signal: AbortSignal.timeout(20000) });
+  if (!r.ok) throw new Error("Server membalas dengan status " + r.status);
+  const ct = (r.headers.get("content-type") || "").toLowerCase(), u = new URL(r.finalUrl);
+  if (/^(audio|video)\//.test(ct) || AUDIO_EXT.test(u.pathname)) {
+    try { await r.body.cancel(); } catch (e) {}
+    let name = u.pathname.split("/").pop() || "Audio";
+    try { name = decodeURIComponent(name); } catch (e) {}
+    name = name.replace(AUDIO_EXT, "") || "Audio";
+    return { title: name, episodes: [{ title: name, date: "", dur: 0, audio: r.finalUrl }] };
+  }
+  return podcast.parseFeed((await readLimited(r, 10 * 1024 * 1024)).toString("utf8"));
 }));
+
+// Transkripsi: unduh audio ke file sementara, jalankan Whisper per 30 detik, kirim hasilnya bertahap (NDJSON).
+// Satu transkripsi dalam satu waktu supaya CPU server tidak berebut. Jendela Whisper yang sedang diproses tidak bisa
+// diputus di tengah jalan, jadi permintaan baru setelah pembatalan menunggu pekerjaan lama selesai (bukan ditolak).
+let podJob = null;
+app.post("/api/podcast/transcribe", async (req, res) => {
+  const b = req.body || {}, model = String(b.model || "base"), lang = String(b.lang || "auto").toLowerCase();
+  const start = Math.max(0, Math.min(+b.start || 0, 86400));
+  if (!podcast.MODELS[model]) return res.status(400).json({ error: "Model tidak dikenal" });
+  if (lang !== "auto" && !/^[a-z]{2,3}$/.test(lang)) return res.status(400).json({ error: "Bahasa tidak valid" });
+  if (podJob && podJob.ac.signal.aborted) await Promise.race([podJob.done, new Promise((ok) => setTimeout(ok, 120000))]);
+  if (podJob) return res.status(409).json({ error: "Masih ada transkripsi lain yang berjalan. Tunggu selesai atau batalkan dulu." });
+  const ac = new AbortController();
+  let finish; podJob = { ac, done: new Promise((ok) => { finish = ok; }) };
+  res.on("close", () => ac.abort());
+  res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
+  res.flushHeaders();
+  const send = (o) => { if (!res.writableEnded && !res.destroyed) res.write(JSON.stringify(o) + "\n"); };
+  const beat = setInterval(() => send({ type: "ping" }), 15000);   // jaga koneksi tetap hidup saat satu jendela lama diproses
+  let dir = null;
+  try {
+    send({ type: "status", msg: "Mengunduh audio…" });
+    const r = await safeFetch(b.url, { headers: { "User-Agent": POD_UA }, signal: ac.signal });
+    if (!r.ok) throw new Error("Server audio membalas dengan status " + r.status);
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "suara-pod-"));
+    const file = path.join(dir, "audio");
+    let t0 = 0;
+    await podcast.saveBody(r, file, { onBytes: (n, len) => { const t = Date.now(); if (t - t0 > 400) { t0 = t; send({ type: "dl", n, len }); } } });
+    if (ac.signal.aborted) return;
+    send({ type: "status", msg: "Memuat model Whisper…" });
+    const asr = await podcast.getAsr(model, (pct) => send({ type: "model", pct }));
+    if (ac.signal.aborted) return;
+    send({ type: "status", msg: "Mentranskripsi…" });
+    const out = await podcast.transcribeFile(file, {
+      asr, lang, start, signal: ac.signal,
+      onSegment: (s) => send({ type: "seg", s: s.s, e: s.e, text: s.text }),
+      onProgress: (t) => send({ type: "progress", t }),
+    });
+    if (!out.aborted) send({ type: "done" });
+  } catch (e) {
+    if (!ac.signal.aborted) send({ type: "error", error: e.message });
+  } finally {
+    clearInterval(beat);
+    podJob = null; finish();
+    if (dir) fs.rm(dir, { recursive: true, force: true }, () => {});
+    res.end();
+  }
+});
+app.get("/api/podcast/status", wrap(async () => podcast.status()));
+
+// Audio MP3 untuk fitur unduh. Memakai endpoint suara Google Translate (tidak resmi), dipotong <= 180 karakter per permintaan.
+function ttsLang(x) {
+  const l = String(x || "id").trim();
+  if (/^zh-(tw|hk|hant)/i.test(l)) return "zh-TW";
+  if (/^zh/i.test(l)) return "zh-CN";
+  const b = l.split("-")[0].toLowerCase();
+  return !b || b === "und" ? "id" : b;
+}
+function ttsPieces(text, max = 180) {
+  const out = []; let s = String(text).replace(/\s+/g, " ").trim();
+  while (s.length > max) {
+    let k = Math.max(...[". ", "! ", "? ", "。", "！", "？", ", ", "、", " "].map((c) => s.lastIndexOf(c, max - 1)));
+    k = k < max * 0.4 ? max : k + 1;
+    out.push(s.slice(0, k).trim()); s = s.slice(k).trim();
+  }
+  if (s) out.push(s);
+  return out;
+}
+async function ttsPiece(q, tl) {
+  const url = "https://translate.google.com/translate_tts?ie=UTF-8&client=tw-ob&tl=" + encodeURIComponent(tl) + "&q=" + encodeURIComponent(q) + "&textlen=" + q.length;
+  const r = await fetch(url, { headers: { "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0 Safari/537.36", Referer: "https://translate.google.com/" }, signal: AbortSignal.timeout(15000) });
+  if (!r.ok) throw new Error("Layanan suara menolak permintaan (HTTP " + r.status + ")");
+  return Buffer.from(await r.arrayBuffer());
+}
+app.post("/api/tts", async (req, res) => {
+  try {
+    const text = String((req.body && req.body.text) || "").slice(0, 1200);
+    if (!text.trim()) throw new Error("Teks kosong");
+    const tl = ttsLang(req.body && req.body.lang), pieces = ttsPieces(text), bufs = [];
+    for (let i = 0; i < pieces.length; i += 3) bufs.push(...(await Promise.all(pieces.slice(i, i + 3).map((x) => ttsPiece(x, tl)))));
+    res.set("Content-Type", "audio/mpeg").send(Buffer.concat(bufs));
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
 
 // EPUB: baca urutan bab (spine) lalu ambil teksnya
 function fromEpub(buf) {
