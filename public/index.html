@@ -69,6 +69,12 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
 .ptx:empty::before{content:"Hasil transkripsi muncul di sini. Ketuk satu baris untuk melompat ke bagian itu di audio.";color:var(--muted)}
 .sg{cursor:pointer;padding:2px 4px;border-radius:6px}.sg.on{background:var(--hl)}
 .sg .tm{color:var(--muted);font-size:12px;font-variant-numeric:tabular-nums;margin-right:6px}
+#newsdlg .nchips{display:flex;gap:6px;flex-wrap:wrap;margin:8px 0}.nchips:empty{display:none}
+.nchip{font:inherit;font-size:13px;border:1px solid var(--line);background:var(--surface);color:var(--text);border-radius:999px;padding:5px 10px;cursor:pointer;max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.nchip .nx{color:var(--muted);padding:0 2px}
+.nlist{max-height:46vh;overflow-y:auto;background:var(--bg);border:1px solid var(--line);border-radius:12px;margin:10px 0}.nlist:empty{display:none}
+.na{padding:10px 12px;border-bottom:1px solid var(--line)}.na:last-child{border-bottom:0}.na.done .nt{color:var(--muted)}
+.nt{font-weight:600;line-height:1.35}.nsn{font-size:14px;color:var(--muted);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;margin:3px 0}
+.nrow{display:flex;gap:8px;align-items:center;justify-content:space-between;margin-top:6px}.nrow .btn{padding:6px 14px;white-space:nowrap}.nrow a{color:var(--muted);font-size:13px}
 :focus-visible{outline:3px solid var(--accent);outline-offset:2px}
 </style>
 </head>
@@ -86,7 +92,7 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
 </div>
 <div class="menu" id="menu">
   <button data-add="text">Teks biasa</button><button data-add="file">File (PDF, EPUB, DOCX)</button>
-  <button data-add="scan">Scan dokumen (kamera)</button><button data-add="link">Web Link</button><button data-add="pod">Podcast (RSS) → teks</button>
+  <button data-add="scan">Scan dokumen (kamera)</button><button data-add="link">Web Link</button><button data-add="pod">Podcast (RSS) → teks</button><button data-add="news">Berita (RSS)</button>
 </div>
 <button class="fab" id="fab" aria-label="Tambah">+</button>
 <input type="file" id="file" accept=".txt,.md,.pdf,.epub,.docx,.html,.htm" hidden>
@@ -126,6 +132,12 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
     <div class="ptx" id="ptx"></div>
   </div>
   <div class="row pfoot"><button class="btn" id="podclose">Tutup</button><span style="flex:1"></span><button class="btn" id="ptxt" disabled>⬇ TXT</button><button class="btn" id="psrt" disabled>⬇ SRT</button><button class="btn" id="psave" disabled title="Simpan ke Library">Simpan</button></div></dialog>
+<dialog id="newsdlg"><h2 style="margin:0 0 10px;font-size:20px">Berita (RSS)</h2>
+  <div style="display:flex;gap:8px"><input type="text" id="nurl" inputmode="url" placeholder="URL RSS/Atom atau alamat situs berita" style="margin:0"><button class="btn" id="nload">Muat</button></div>
+  <div class="nchips" id="nchips"></div>
+  <div class="sub" id="nmsg" style="margin:8px 0"></div>
+  <div class="nlist" id="nlist"></div>
+  <div class="row pfoot"><button class="btn" id="nclose">Tutup</button><span style="flex:1"></span><button class="btn" id="nsave" hidden>☆ Simpan feed</button></div></dialog>
 <dialog id="dlg"><h2 style="margin:0 0 12px;font-size:20px">Tambah teks</h2>
   <input type="text" id="dtitle" placeholder="Judul"><textarea id="dbody" placeholder="Tempel teks di sini"></textarea>
   <div class="row"><button class="btn" id="dcancel">Batal</button><button class="btn primary" id="dsave">Simpan</button></div></dialog>
@@ -639,6 +651,77 @@ $("psave").onclick=function(){
   var ep=eps[+$("pep").value],L=$("plang").value;
   try{add((ep&&ep.title)||"Podcast",ptr.map(function(s){return s.text}).join(" "),L!=="auto"?{lang:L}:null)}catch(e){toast("Gagal: "+e.message)}};
 
+/* ---------- Berita (RSS) ---------- */
+var nFeed=null,nTok=0;
+function nGet(k,d){try{var v=JSON.parse(localStorage.getItem(KEY+k)||"null");return v==null?d:v}catch(e){return d}}
+function nSet(k,v){try{localStorage.setItem(KEY+k,JSON.stringify(v))}catch(e){}}
+function nSeen(l){return nGet("-newsseen",[]).indexOf(l)>=0}
+function nMark(l){var q=nGet("-newsseen",[]);if(q.indexOf(l)<0){q.push(l);nSet("-newsseen",q.slice(-300))}}
+function nChips(){
+  var box=$("nchips");box.innerHTML="";
+  nGet("-feeds",[]).forEach(function(f){
+    var b=document.createElement("button");b.className="nchip";b.textContent=f.t||f.u;b.title=f.u;
+    b.onclick=function(){$("nurl").value=f.u;$("nload").click()};
+    var x=document.createElement("span");x.className="nx";x.textContent=" ×";x.title="Hapus dari simpanan";
+    x.onclick=function(e){e.stopPropagation();nSet("-feeds",nGet("-feeds",[]).filter(function(g){return g.u!==f.u}));nChips();nSaveBtn()};
+    b.appendChild(x);box.appendChild(b)})}
+function nSaveBtn(){
+  var b=$("nsave");if(!nFeed){b.hidden=true;return}
+  var saved=nGet("-feeds",[]).some(function(f){return f.u===nFeed.url});
+  b.hidden=false;b.textContent=saved?"★ Tersimpan":"☆ Simpan feed";b.disabled=saved}
+$("nsave").onclick=function(){
+  if(!nFeed)return;
+  var fs=nGet("-feeds",[]).filter(function(f){return f.u!==nFeed.url});fs.unshift({u:nFeed.url,t:nFeed.title});
+  nSet("-feeds",fs.slice(0,20));nChips();nSaveBtn()};
+function openNews(){
+  nChips();if(!$("nurl").value){var l=nGet("-newsurl","");if(l)$("nurl").value=l}
+  $("newsdlg").showModal()}
+function nDate(iso){
+  if(!iso)return "";var d=new Date(iso);if(isNaN(d))return "";
+  try{return d.toLocaleString("id-ID",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}catch(e){return iso.slice(0,10)}}
+function nHost(u){try{return new URL(u).hostname.replace(/^www\./,"")}catch(e){return ""}}
+// Isi lengkap lewat server; bila gagal atau lebih pendek dari ringkasan feed, pakai ringkasan feed.
+function nText(a){
+  var sum=a.summary||"";
+  return fetch("/api/news/article?url="+encodeURIComponent(a.link)).then(function(r){return r.json()}).then(function(d){
+    if(d.error)throw new Error(d.error);
+    if(!d.text)throw new Error("Isi artikel kosong");
+    return (d.text.length<200&&sum.length>d.text.length)?sum:d.text
+  }).catch(function(e){if(sum.length>=60)return sum;throw e})}
+function nAdd(a,card){
+  var btn=card.querySelector(".nadd");btn.disabled=true;btn.textContent="Memuat…";
+  nText(a).then(function(text){
+    add(a.title,text);nMark(a.link);card.classList.add("done");btn.textContent="✓ Ditambahkan";
+    $("nmsg").textContent="Ditambahkan ke Library: "+a.title;
+  }).catch(function(e){btn.disabled=false;btn.textContent="+ Library";$("nmsg").textContent="Gagal: "+e.message})}
+function nShow(){
+  var box=$("nlist"),fr=document.createDocumentFragment();box.innerHTML="";
+  nFeed.articles.forEach(function(a){
+    var c=document.createElement("div");c.className="na"+(nSeen(a.link)?" done":"");
+    var t=document.createElement("div");t.className="nt";t.textContent=a.title;c.appendChild(t);
+    var m=document.createElement("div");m.className="sub";m.textContent=[nDate(a.date),nHost(a.link)].filter(Boolean).join(" · ");c.appendChild(m);
+    var sn=a.summary&&a.summary.replace(/\s+/g," ").slice(0,220);
+    if(sn&&sn!==a.title){var n=document.createElement("div");n.className="nsn";n.textContent=sn;c.appendChild(n)}
+    var r=document.createElement("div");r.className="nrow";
+    var l=document.createElement("a");l.href=a.link;l.target="_blank";l.rel="noopener noreferrer";l.textContent="Sumber ↗";r.appendChild(l);
+    var b=document.createElement("button");b.className="btn nadd";b.textContent=nSeen(a.link)?"✓ Ditambahkan":"+ Library";
+    b.onclick=function(){nAdd(a,c)};r.appendChild(b);c.appendChild(r);fr.appendChild(c)});
+  box.appendChild(fr);box.scrollTop=0;
+  $("nmsg").textContent=nFeed.title+" · "+nFeed.articles.length+" artikel";nSaveBtn()}
+$("nload").onclick=function(){
+  var u=$("nurl").value.trim();if(!u){$("nurl").focus();return}
+  if(!/^[a-z][a-z0-9+.-]*:\/\//i.test(u))u="https://"+u;
+  $("nurl").value=u;nSet("-newsurl",u);
+  var tok=++nTok;$("nmsg").textContent="Memuat…";$("nload").disabled=true;
+  fetch("/api/news/feed?url="+encodeURIComponent(u)).then(function(r){return r.json()}).then(function(d){
+    if(tok!==nTok)return;if(d.error)throw new Error(d.error);
+    nFeed={url:d.url||u,title:d.title||"Berita",articles:d.articles};nShow()
+  }).catch(function(e){if(tok!==nTok)return;nFeed=null;$("nlist").innerHTML="";nSaveBtn();$("nmsg").textContent="Gagal: "+e.message})
+    .then(function(){if(tok===nTok)$("nload").disabled=false})};
+$("nurl").onkeydown=function(e){if(e.key==="Enter")$("nload").click()};
+$("nclose").onclick=function(){$("newsdlg").close()};
+$("newsdlg").addEventListener("close",function(){nTok++;$("nload").disabled=false});
+
 /* ---------- Hapus semua data ---------- */
 function wipeAll(){
   if(!confirm("Hapus SEMUA data situs ini?\n\n• Semua teks di Library\n• Progres baca dan pengaturan (suara, bahasa, dll.)\n• Cache, termasuk data bahasa OCR\n\nTindakan ini tidak bisa dibatalkan."))return;
@@ -660,7 +743,7 @@ $("fab").onclick=function(){$("menu").classList.toggle("open");$("fab").textCont
 $("menu").onclick=function(e){var t=e.target.dataset.add;if(!t)return;$("menu").classList.remove("open");$("fab").textContent="+";
   if(t==="text"){$("dtitle").value="";$("dbody").value="";$("dlg").showModal()}
   else if(t==="link"){var u=prompt("Tempel alamat web (URL)");if(u)remote("/api/extract?url="+encodeURIComponent(u.trim()),u)}
-  else if(t==="scan")openScan();else if(t==="pod")openPod();else $("file").click()};
+  else if(t==="scan")openScan();else if(t==="pod")openPod();else if(t==="news")openNews();else $("file").click()};
 $("dcancel").onclick=function(){$("dlg").close()};
 $("dsave").onclick=function(){var b=$("dbody").value.trim();if(!b){$("dbody").focus();return}add($("dtitle").value.trim()||b.slice(0,40),b);$("dlg").close()};
 $("file").onchange=function(){var f=this.files[0];this.value="";if(!f)return;var fd=new FormData();fd.append("file",f);remote("/api/file",f.name,{method:"POST",body:fd})};
