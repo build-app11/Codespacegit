@@ -44,7 +44,12 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
 .ctl select{font:inherit;background:var(--bg);color:var(--text);border:1px solid var(--line);border-radius:10px;padding:8px;max-width:140px}
 .tr{display:block;font-size:15px;color:var(--muted);line-height:1.5;margin:2px 0 12px}
 .tron .s,.phon .s{display:block}
-.ph{display:block;font-size:14px;line-height:1.5;color:var(--muted);margin:0 0 4px}.ph span{display:block}.ph .ip{font-family:"Charis SIL","Gentium Plus","Doulos SIL","Noto Sans",system-ui,serif}
+.s.ann{line-height:1.2;margin-bottom:.5em}
+.wd{display:inline-flex;flex-direction:column;align-items:center;vertical-align:top;text-align:center;padding:0 .14em}
+.wd .wt{border-radius:4px;padding:0 2px}
+.wd.hw .wt{background:var(--accent);color:var(--accent-ink)}
+.wd .wr,.wd .wi{font-size:.58em;line-height:1.25;color:var(--muted);white-space:nowrap}
+.wd .wi{font-family:"Charis SIL","Gentium Plus","Doulos SIL","Noto Sans",system-ui,serif}
 .pop{position:fixed;left:0;right:0;bottom:0;background:var(--surface);border-top:1px solid var(--line);border-radius:20px 20px 0 0;padding:16px 16px calc(16px + env(safe-area-inset-bottom,0px));display:none;z-index:25;max-height:65vh;overflow:auto;box-shadow:0 -8px 30px rgba(0,0,0,.25)}
 .pop.open{display:block}.pin2{max-width:680px;margin:0 auto}.ph{display:flex;justify-content:space-between;align-items:center}
 .pw{font-size:24px;font-weight:700}.pron{font-size:16px;margin:2px 0}.pron b{font-weight:600;color:var(--muted)}.pt1{font-size:21px;color:var(--accent);margin:6px 0;font-weight:600}
@@ -96,7 +101,7 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
     <div class="ctl"><select id="tl" aria-label="Bahasa terjemahan"><option value="id">Indonesia</option><option value="en">English</option><option value="ms">Melayu</option><option value="ar">العربية</option><option value="zh-CN">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="ru">Русский</option><option value="hi">हिन्दी</option><option value="pt">Português</option><option value="tr">Türkçe</option><option value="th">ไทย</option><option value="nl">Nederlands</option></select>
       <select id="voice2" aria-label="Suara untuk terjemahan" title="Suara untuk bahasa terjemahan"></select>
       <button class="btn" id="trbtn">🌐 Terjemahkan</button><label class="sub"><input type="checkbox" id="trspeak"> Bacakan terjemahan</label></div>
-    <div class="sub" style="text-align:center;margin-top:6px">Ketuk kata untuk terjemahan. Bahasa utama = bahasa teks yang dibaca dan disuarakan (subtitle asli YouTube, atau terjemahan mesin untuk sumber lain). Di bawah teks utama: romanisasi (aksara non-Latin) dan IPA yang dirangkai per kata (tanpa konteks, jadi hasilnya perkiraan), lalu baris abu-abu terjemahan. Durasi adalah perkiraan.</div>
+    <div class="sub" style="text-align:center;margin-top:6px">Ketuk kata untuk terjemahan. Bahasa utama = bahasa teks yang dibaca dan disuarakan (subtitle asli YouTube, atau terjemahan mesin untuk sumber lain). Di bawah tiap kata: romanisasi (aksara non-Latin) dan IPA. Baris abu-abu di bawah kalimat = terjemahan. Durasi adalah perkiraan.</div>
   </div></div>
 </div>
 <div class="pop" id="pop"><div class="pin2"><div class="ph"><div class="pw" id="pw"></div><button class="small" id="pclose" aria-label="Tutup">✕</button></div>
@@ -246,32 +251,43 @@ function setMain(code){
     }).catch(function(e){if(tok===mlTok){$("ml").value=prev;toast("Gagal ganti bahasa: "+e.message)}});
 }
 $("ml").onchange=function(){setMain(this.value)};
-function paintMain(k){var sp=$("rbody").querySelector('[data-i="'+k+'"]');if(!sp)return;sp.classList.remove("pend");if(hl&&hl.el===sp)return;sp.textContent=dsent(k)+" "}
+function paintMain(k){var sp=$("rbody").querySelector('[data-i="'+k+'"]');if(!sp)return;sp.classList.remove("pend");if(hl&&hl.el===sp)return;sp.classList.remove("ann");sp.textContent=dsent(k)+" "}
 function phKey(k){return (cur.main||cur.lang||"")+"|"+cur.id+"|"+k}
+/* Anotasi per kata: tiap kata menjadi sel (kata, lalu romanisasi dan IPA tepat di bawahnya) */
 function applyPh(k){
   var b=$("rbody"),sp=b.querySelector('.s[data-i="'+k+'"]');if(!sp||!cur)return;
-  var c=phCache[phKey(k)]||{},old=b.querySelector('.ph[data-k="'+k+'"]'),ln=[];
-  if(phOn.rm&&c.rm)ln.push(["rm",c.rm]);if(phOn.ip&&c.ip)ln.push(["ip","/"+c.ip+"/"]);
-  if(!ln.length){if(old)old.remove();return}
-  var x=old||document.createElement("span");x.className="ph";x.dataset.k=k;x.textContent="";
-  ln.forEach(function(l){var d=document.createElement("span");d.className=l[0];d.textContent=l[1];x.appendChild(d)});
-  if(!old)sp.after(x)}
+  if(hl&&hl.el===sp)return;                        // sedang disorot: dirender ulang setelah kalimat selesai
+  var c=phCache[phKey(k)],txt=dsent(k),rm=phOn.rm&&c&&c.rm,ip=phOn.ip&&c&&c.ip;
+  if(!c||c.bad||(!rm&&!ip)||c.t.join("")!==txt){
+    if(sp.classList.contains("ann")){sp.classList.remove("ann");sp.textContent=txt+" "}return}
+  sp.textContent="";sp.classList.add("ann");var off=0;
+  c.t.forEach(function(t,i){
+    if(!/\S/.test(t)){sp.appendChild(document.createTextNode(t));off+=t.length;return}
+    var cell=document.createElement("span");cell.className="wd";
+    cell.dataset.s=off;cell.dataset.e=off+t.length;cell.dataset.t=t;cell.dataset.wl=c.wl[i]?"1":"0";
+    var w=document.createElement("span");w.className="wt";w.textContent=t;cell.appendChild(w);
+    if(rm&&c.rm[i]){var r=document.createElement("span");r.className="wr";r.textContent=c.rm[i];cell.appendChild(r)}
+    if(ip&&c.ip[i]){var q=document.createElement("span");q.className="wi";q.textContent=c.ip[i];cell.appendChild(q)}
+    sp.appendChild(cell);off+=t.length});
+  sp.appendChild(document.createTextNode(" "))}
 function phRefresh(){var b=$("rbody");b.classList.toggle("phon",phOn.rm||phOn.ip);
   [].forEach.call(b.querySelectorAll(".s"),function(sp){applyPh(+sp.dataset.i)})}
-/* ambil romanisasi/IPA untuk 3 kalimat sekaligus, 8 kalimat ke depan */
+/* ambil anotasi untuk 3 kalimat sekaligus, 8 kalimat ke depan */
 function warmPh(){
   if(!cur||phBusy||(!phOn.rm&&!phOn.ip)||!sents.length)return;
   var it=cur,L=mainLang(),tok=mtTok,idx=[],lim=Math.min(sents.length,pos+8);
-  for(var k=pos;k<lim&&idx.length<3;k++){if(!mReady(k))continue;var c=phCache[phKey(k)]||{};
-    if((phOn.rm&&c.rm===undefined)||(phOn.ip&&L&&c.ip===undefined))idx.push(k)}
+  for(var k=pos;k<lim&&idx.length<3;k++){if(!mReady(k))continue;var c=phCache[phKey(k)];
+    if(!c||(phOn.rm&&c.rm===undefined)||(phOn.ip&&L&&c.ip===undefined))idx.push(k)}
   if(!idx.length)return;
   var needRm=phOn.rm,needIp=phOn.ip&&!!L,keys=idx.map(phKey),texts=idx.map(dsent);
   phBusy=true;
   fetch("/api/phon",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({texts:texts,l:L,rm:needRm,ip:needIp})})
     .then(function(r){return r.json()}).then(function(d){
       phBusy=false;if(d.error)throw new Error(d.error);
-      idx.forEach(function(k,j){var c=phCache[keys[j]]||(phCache[keys[j]]={});
-        if(needRm)c.rm=d.rm&&d.rm[j]!=null?d.rm[j]:"";if(needIp)c.ip=d.ip&&d.ip[j]!=null?d.ip[j]:""});
+      idx.forEach(function(k,j){var r=d.items&&d.items[j],c=phCache[keys[j]];
+        if(!r){phCache[keys[j]]={t:[],wl:[],bad:true,rm:[],ip:[]};return}
+        if(!c||c.t.join("")!==r.t.join(""))c=phCache[keys[j]]={t:r.t,wl:r.wl};
+        if(needRm)c.rm=r.rm||[];if(needIp)c.ip=r.ip||[]});
       if(tok===mtTok&&cur===it)idx.forEach(applyPh);
       warmPh()
     }).catch(function(){phBusy=false});
@@ -313,9 +329,14 @@ function wordSegs(t,L){
     Array.from(sg.segment(t)).forEach(function(x){if(x.isWordLike)out.push({s:x.index,e:x.index+x.segment.length})});
   }else{var re=/\S+/g,m;while((m=re.exec(t)))out.push({s:m.index,e:m.index+m[0].length})}
   return out}
-function newHL(el,t,tail,L,rate){return {el:el,t:t,tail:tail,w:wordSegs(t,L),rate:rate||1,idx:-2,real:false,timer:0,t0:0,wait:0,
-  cjk:/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0e00-\u0e7f]/.test(t)}}
-function paintHL(i){var h=hl;if(!h||h.idx===i)return;h.idx=i;var el=h.el;el.textContent="";
+function newHL(el,t,tail,L,rate,k){
+  var cells=el.classList.contains("ann")?[].slice.call(el.querySelectorAll('.wd[data-wl="1"]')):null;
+  return {el:el,k:k,t:t,tail:tail,cells:cells,rate:rate||1,idx:-2,real:false,timer:0,t0:0,wait:0,
+    w:cells?cells.map(function(c){return {s:+c.dataset.s,e:+c.dataset.e}}):wordSegs(t,L),
+    cjk:/[\u3040-\u30ff\u3400-\u9fff\uac00-\ud7af\u0e00-\u0e7f]/.test(t)}}
+function paintHL(i){var h=hl;if(!h||h.idx===i)return;
+  if(h.cells){var o=h.cells[h.idx],n=h.cells[i];if(o)o.classList.remove("hw");if(n)n.classList.add("hw");h.idx=i;return}
+  h.idx=i;var el=h.el;el.textContent="";
   var w=h.w[i];if(!w){el.textContent=h.t+h.tail;return}
   var m=document.createElement("mark");m.className="w";m.textContent=h.t.slice(w.s,w.e);
   el.appendChild(document.createTextNode(h.t.slice(0,w.s)));el.appendChild(m);el.appendChild(document.createTextNode(h.t.slice(w.e)+h.tail))}
@@ -327,7 +348,9 @@ function hlStart(){var h=hl;if(!h)return;h.t0=performance.now();
     var cps=(h.cjk?7.5:14)*h.rate;
     h.timer=setInterval(function(){if(hl!==h||h.real){clearInterval(h.timer);return}
       var i=wordIdx(h,(performance.now()-h.t0)/1000*cps);paintHL(i<0?h.w.length-1:i)},80)},600)}
-function stopHL(){var h=hl;if(!h)return;clearInterval(h.timer);clearTimeout(h.wait);hl=null;h.el.textContent=h.t+h.tail}
+function stopHL(){var h=hl;if(!h)return;clearInterval(h.timer);clearTimeout(h.wait);hl=null;
+  if(h.cells){var o=h.cells[h.idx];if(o)o.classList.remove("hw");if(!(phOn.rm||phOn.ip)&&h.k!=null)applyPh(h.k)}else h.el.textContent=h.t+h.tail;
+  if(!h.cells&&h.k!=null&&h.el.classList.contains("s"))applyPh(h.k)}
 
 function speak(){
   if(!synth||!cur)return;synth.cancel();stopHL();
@@ -342,7 +365,7 @@ function say(k,tok){
   var u=new SpeechSynthesisUtterance(txt);
   if(v){u.voice=v;u.lang=v.lang}else u.lang=lang?vlang(lang):(mainLang()?vlang(mainLang()):"id-ID");
   u.rate=parseFloat($("rate").value);
-  if(el)hl=newHL(el,txt,tail,lang||mainLang(),u.rate);
+  if(el)hl=newHL(el,txt,tail,lang||mainLang(),u.rate,k);
   u.onstart=function(){if(tok===spTok&&hl)hlStart()};
   u.onboundary=function(e){if(tok!==spTok||!hl)return;if(e.name&&e.name!=="word")return;hlAt(e.charIndex)};
   u.onend=function(){if(tok!==spTok)return;stopHL();if(!playing||pos!==k)return;
@@ -358,7 +381,9 @@ $("play").onclick=function(){if(!cur)return;if(playing){stop();prog[cur.id]={pos
 $("prev").onclick=function(){go(pos-1)};$("next").onclick=function(){go(pos+1)};
 $("pprev").onclick=function(){go(chunks[Math.max(0,ci-1)].s)};$("pnext").onclick=function(){go(chunks[Math.min(chunks.length-1,ci+1)].s)};
 $("seek").oninput=function(){updTime(+this.value)};$("seek").onchange=function(){go(+this.value)};
-$("rbody").onclick=function(e){if(e.target.closest(".tr,.ph"))return;var s=e.target.closest(".s");if(!s)return;var w=wordAt(e);if(w)showWord(w,+s.dataset.i);else go(+s.dataset.i,true)};
+$("rbody").onclick=function(e){if(e.target.closest(".tr"))return;var s=e.target.closest(".s");if(!s)return;
+  var cell=e.target.closest(".wd"),w=cell?(cell.dataset.wl==="1"?cell.dataset.t:null):wordAt(e);
+  if(w)showWord(w,+s.dataset.i);else go(+s.dataset.i,true)};
 $("rate").onchange=function(){updTime();if(playing)speak()};
 $("voice").onchange=function(){try{localStorage.setItem(vKey(mainLang()),$("voice").value)}catch(e){}if(playing)speak()};
 $("voice2").onchange=function(){try{localStorage.setItem(vKey2($("tl").value),$("voice2").value)}catch(e){}if(playing&&trOn&&$("trspeak").checked)speak()};
@@ -403,7 +428,7 @@ function applyTr(k){
   var t=trText(k),sp=$("rbody").querySelector('[data-i="'+k+'"]');
   if(!t||!sp||$("rbody").querySelector('.tr[data-k="'+k+'"]'))return;
   var x=document.createElement("span");x.className="tr";x.dataset.k=k;x.textContent=t;
-  var ph=$("rbody").querySelector('.ph[data-k="'+k+'"]');(ph||sp).after(x)}
+  sp.after(x)}
 function translateChunk(){
   $("rbody").classList.toggle("tron",trOn);if(!trOn||ci<0||!cur)return;
   if(trSame()){if(!trWarn){trWarn=true;toast("Bahasa terjemahan sama dengan bahasa utama, pilih bahasa terjemahan lain")}return}
