@@ -61,13 +61,16 @@ function parseNews(xml, opt) {
     const link = itemLink(it, opt.base);
     if (!link) continue;
     const d = new Date(tag(it, "pubDate") || tag(it, "dc:date") || tag(it, "published") || tag(it, "updated"));
-    // Ringkasan: pilih yang paling lengkap, dipotong supaya respons tetap kecil.
-    const body = tag(it, "content:encoded") || tag(it, "content") || tag(it, "description") || tag(it, "summary");
+    // summary: cuplikan pendek untuk daftar. content: isi lengkap dari feed (content:encoded / <content>, atau description
+    // yang panjang), dipakai hanya bila halaman artikelnya tidak bisa diambil. Deskripsi pendek bukan isi lengkap.
+    const enc = tag(it, "content:encoded") || tag(it, "content"), desc = tag(it, "description") || tag(it, "summary");
+    const full = enc || (desc.length > 800 ? desc : "");
     articles.push({
       title: tag(it, "title") || "Tanpa judul",
       link,
       date: isNaN(d) ? "" : d.toISOString(),
-      summary: body.slice(0, 2000),
+      summary: (desc || enc).slice(0, 300),
+      content: full.slice(0, 50000),
     });
     if (articles.length >= max) break;
   }

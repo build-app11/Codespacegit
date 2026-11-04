@@ -6,7 +6,8 @@
     "start": "node server.js",
     "phon:test": "node test-phon.js",
     "podcast:test": "node test-podcast.js",
-    "news:test": "node test-news.js"
+    "news:test": "node test-news.js",
+    "article:test": "node test-article.js"
   },
   "dependencies": {
     "adm-zip": "^0.5.14",

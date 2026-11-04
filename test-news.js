@@ -18,12 +18,17 @@ const rss = parseNews(`<?xml version="1.0"?><rss version="2.0" xmlns:content="x"
 </channel></rss>`, { base: "https://news.test/feed.xml" });
 assert.strictEqual(rss.title, "Berita & Kabar");
 assert.strictEqual(rss.articles.length, 3);
-assert.deepStrictEqual(rss.articles[0], { title: "Judul & satu", link: "https://news.test/a?x=1&y=2", date: "2026-11-03T10:00:00.000Z", summary: "Ringkasan tebal di sini." });
+assert.deepStrictEqual(rss.articles[0], { title: "Judul & satu", link: "https://news.test/a?x=1&y=2", date: "2026-11-03T10:00:00.000Z", summary: "Ringkasan tebal di sini.", content: "" });
 assert.strictEqual(rss.articles[1].link, "https://news.test/baca/2");
 assert.strictEqual(rss.articles[1].date, "2026-11-02T08:30:00.000Z");
-assert.strictEqual(rss.articles[1].summary, "Isi panjang");   // content:encoded didahulukan dari description
+assert.strictEqual(rss.articles[1].summary, "pendek");        // cuplikan daftar dari description
+assert.strictEqual(rss.articles[1].content, "Isi panjang");   // isi penuh dari content:encoded
 assert.strictEqual(rss.articles[2].link, "https://news.test/g/3");
 assert.strictEqual(rss.articles[2].date, "");
+const longDesc = "Kalimat isi. ".repeat(100);   // description sangat panjang dianggap isi lengkap, bukan ringkasan
+const big = parseNews(`<rss><channel><title>t</title><item><title>a</title><link>https://n.test/a</link><description>${longDesc}</description></item></channel></rss>`).articles[0];
+assert.strictEqual(big.summary.length, 300);
+assert.strictEqual(big.content, longDesc.trim());
 ok("RSS 2.0: CDATA, entitas, skrip dibuang, tautan relatif, guid, skema berbahaya dilewati");
 
 // 2. Atom

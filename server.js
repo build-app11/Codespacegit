@@ -5,11 +5,12 @@ const multer = require("multer");
 const mammoth = require("mammoth");
 const AdmZip = require("adm-zip");
 const pdfParse = require("pdf-parse/lib/pdf-parse.js");
-const { JSDOM } = require("jsdom");
+const { JSDOM, VirtualConsole } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
 const phon = require("./phon");
 const podcast = require("./podcast");
 const news = require("./news");
+const article = require("./article");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -36,11 +37,20 @@ app.get("/api/extract", wrap(async (req) => {
   return fromHtml(await r.text(), u.href);
 }));
 
+// jsdom mencetak seluruh isi stylesheet ke terminal bila CSS-nya tidak bisa diurai (situs besar seperti The Guardian sering begini).
+// CSS tidak dibutuhkan untuk mengambil teks, jadi <style> dibuang sebelum diurai dan konsol jsdom dibuat diam.
+const quietDom = () => new VirtualConsole();
 function fromHtml(html, url) {
-  const dom = new JSDOM(html, { url: url || "http://localhost" });
+  html = String(html).replace(/<style\b[\s\S]*?<\/style>/gi, "");
+  const dom = new JSDOM(html, { url: url || "http://localhost", virtualConsole: quietDom() });
+  try { article.prepare(dom.window.document); } catch (e) {}   // buang menu/iklan/"baca juga", buka bagian "read more"
   const art = new Readability(dom.window.document).parse();
   if (!art || !art.textContent.trim()) throw new Error("Isi artikel tidak ditemukan");
-  return { title: art.title, text: clean(art.textContent) };
+  let text = "";
+  try { text = clean(article.extractText(new JSDOM("<!doctype html><body>" + art.content, { virtualConsole: quietDom() }).window.document)); } catch (e) {}
+  const raw = clean(art.textContent);
+  // Pengaman: kalau pembersihan membuang terlalu banyak, anggap berlebihan dan pakai hasil Readability apa adanya.
+  return { title: art.title, text: text && (raw.length < 600 || text.length >= raw.length * 0.35) ? text : raw };
 }
 
 // ---------- Podcast (RSS) -> teks ----------
@@ -152,14 +162,16 @@ app.get("/api/news/feed", wrap(async (req) => {
   }
 }));
 
-// Isi lengkap satu artikel (Readability), dipakai saat artikel ditambahkan ke Library.
-app.get("/api/news/article", wrap(async (req) => {
-  const r = await safeFetch(req.query.url, { headers: { "User-Agent": NEWS_UA, Accept: "text/html, application/xhtml+xml;q=0.9, */*;q=0.5" }, signal: AbortSignal.timeout(20000) });
+// Isi lengkap satu artikel, dipakai saat artikel ditambahkan ke Library: hanya isinya (tanpa menu, iklan, "baca juga", dsb.),
+// dan bila artikelnya dipecah ke beberapa halaman, halaman lanjutannya ikut dibaca (maks. 8 halaman).
+async function fetchArticlePage(url) {
+  const r = await safeFetch(url, { headers: { "User-Agent": NEWS_UA, Accept: "text/html, application/xhtml+xml;q=0.9, */*;q=0.5" }, signal: AbortSignal.timeout(20000) });
   if (!r.ok) throw new Error("Situs membalas dengan status " + r.status);
   const ct = (r.headers.get("content-type") || "").toLowerCase();
   if (/^(audio|video|image)\//.test(ct) || /pdf/.test(ct)) { try { await r.body.cancel(); } catch (e) {} throw new Error("Tautan ini bukan halaman artikel"); }
-  return fromHtml((await readLimited(r, 5 * 1024 * 1024)).toString("utf8"), r.finalUrl);
-}));
+  return { html: (await readLimited(r, 5 * 1024 * 1024)).toString("utf8"), url: r.finalUrl };
+}
+app.get("/api/news/article", wrap(async (req) => article.readAll(fetchArticlePage, fromHtml, req.query.url)));
 
 // Audio MP3 untuk fitur unduh. Memakai endpoint suara Google Translate (tidak resmi), dipotong <= 180 karakter per permintaan.
 function ttsLang(x) {
@@ -212,7 +224,7 @@ function fromEpub(buf) {
     const href = manifest[m[1]];
     if (!href) continue;
     const html = read(dir + decodeURIComponent(href.split("#")[0]));
-    if (html) parts.push(new JSDOM(html).window.document.body.textContent);
+    if (html) parts.push(new JSDOM(html.replace(/<style\b[\s\S]*?<\/style>/gi, ""), { virtualConsole: quietDom() }).window.document.body.textContent);
   }
   const title = ((opf.match(/<dc:title[^>]*>([^<]+)/) || [])[1] || "").trim();
   return { title, text: clean(parts.join(" ")) };
