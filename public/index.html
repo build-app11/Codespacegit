@@ -471,7 +471,7 @@ function splitLong(t,max){var parts=t.match(/[^.!?;,。！？；，]+[.!?;,。�
   parts.forEach(function(x){if(g&&g.length+x.length>max){out.push(g);g=""}g+=x});if(g)out.push(g);return out}
 function kokoroLoad(){
   if(!engMod.kokoro)engMod.kokoro=importAny(KOKORO_URLS).then(function(m){
-    toast("Memuat model Kokoro (±90 MB, hanya sekali)…",true);
+    toast("Memuat model Kokoro…",true);
     return m.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX",{dtype:"q8",device:"wasm",
       progress_callback:function(p){if(p&&p.status==="progress"&&p.file)toast("Mengunduh Kokoro: "+p.file.split("/").pop()+" "+Math.round(p.progress||0)+"%",true)}})
   }).then(function(t){toast("Kokoro siap");return t}).catch(function(e){engMod.kokoro=null;throw e});
@@ -516,10 +516,82 @@ function piperGen(id,text){return piperLoad().then(function(m){
     var have=st.indexOf(id)>=0;
     var pre=have?Promise.resolve():m.download(id,function(p){if(p&&p.total)toast("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%",true)}).then(function(){toast("Suara Piper siap")});
     return pre.then(function(){return m.predict({text:text,voiceId:id})})})})}
+/* ---------- Worker: Piper/Kokoro/Kitten dijalankan di thread terpisah supaya halaman tidak macet saat model dimuat atau suara dibuat ---------- */
+function engWorkerMain(){   // berjalan di dalam Web Worker (bukan di halaman)
+  var inst={};
+  function note(id,t){postMessage({id:id,toast:t})}
+  function seq(parts,fn){var acc=[];return parts.reduce(function(p,c){return p.then(function(){return fn(c).then(function(r){acc.push(r)})})},Promise.resolve()).then(function(){return acc})}
+  var BAD=/session|protobuf|graph|onnx|corrupt/i;
+  function clearCache(re){return caches.open("transformers-cache").then(function(c){return c.keys().then(function(ks){return Promise.all(ks.filter(function(r){return re.test(r.url)}).map(function(r){return c.delete(r)}))})}).catch(function(){})}
+  function kokoro(id,m,retry){
+    return kokoroRun(id,m).catch(function(e){
+      if(!retry&&BAD.test(String(e&&e.message||e))){inst.kokoro=null;note(id,"Berkas model rusak, mengunduh ulang…");return clearCache(/Kokoro-82M/).then(function(){return kokoro(id,m,true)})}
+      throw e})}
+  function kokoroRun(id,m){
+    if(!inst.kokoro)inst.kokoro=(async function(){
+      var cached=false;
+      try{var ks=await (await caches.open("transformers-cache")).keys();cached=ks.some(function(r){return /Kokoro-82M-v1\.0-ONNX/.test(r.url)&&/\.onnx/.test(r.url)})}catch(e){}
+      note(id,cached?"Memuat model Kokoro dari cache…":"Mengunduh model Kokoro (±90 MB, hanya sekali)…");
+      var mod=await importAny(KOKORO_URLS);
+      return mod.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX",{dtype:"q8",device:"wasm",
+        progress_callback:function(p){if(!cached&&p&&p.status==="progress"&&p.file)note(id,"Mengunduh Kokoro: "+p.file.split("/").pop()+" "+Math.round(p.progress||0)+"%")}})
+    })().catch(function(e){inst.kokoro=null;throw e});
+    return inst.kokoro.then(function(t){
+      return seq(splitLong(m.text,250),function(c){return t.generate(c,{voice:m.voice})}).then(function(acc){
+        var n=0,o=0;acc.forEach(function(a){n+=a.audio.length});var all=new Float32Array(n);
+        acc.forEach(function(a){all.set(a.audio,o);o+=a.audio.length});return wavBlob(all,acc[0].sampling_rate)})})}
+  function kitten(id,m){
+    var key="kitten:"+m.model;
+    if(!inst[key])inst[key]=importAny(KITTEN_URLS).then(function(mod){
+      note(id,"Memuat model Kitten ("+m.model+")…");
+      return mod.KittenTTS.create({model:m.model,analytics:false},function(p){note(id,"Memuat Kitten ("+m.model+")… "+Math.round(p*100)+"%")})
+    }).catch(function(e){inst[key]=null;throw e});
+    return inst[key].then(function(t){
+      return seq(splitLong(m.text,300),function(c){return t.generate(c,{voice:m.voice}).then(function(r){return r.wavData()})}).then(function(acc){
+        return new Blob([acc.length>1?wavConcat(acc):acc[0]],{type:"audio/wav"})})})}
+  function piper(id,m,retry){
+    if(!inst.piper)inst.piper=importAny(PIPER_URLS).catch(function(e){inst.piper=null;throw e});
+    return inst.piper.then(function(mod){
+      return Promise.resolve(mod.stored?mod.stored():[]).catch(function(){return []}).then(function(st){
+        var pre=st.indexOf(m.voice)>=0?Promise.resolve():mod.download(m.voice,function(p){if(p&&p.total)note(id,"Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%")});
+        return pre.then(function(){return mod.predict({text:m.text,voiceId:m.voice})})}).catch(function(e){
+        var msg=String(e&&e.message||e);
+        if(!retry&&BAD.test(msg)){   // berkas model di penyimpanan rusak/terpotong: hapus, unduh ulang, coba sekali lagi
+          note(id,"Berkas suara rusak, mengunduh ulang…");
+          return Promise.resolve(typeof mod.remove==="function"?mod.remove(m.voice):0).catch(function(){}).then(function(){return piper(id,m,true)})}
+        throw new Error(msg+(retry?" (suara "+m.voice+" gagal dimuat; coba suara Piper lain)":""))})})}
+  onmessage=function(ev){
+    var m=ev.data,id=m.id;
+    if(m.cmd==="drop"){Object.keys(inst).forEach(function(k){if(k.indexOf("kitten:")===0)delete inst[k]});return}
+    (m.eng==="kokoro"?kokoro(id,m,false):m.eng==="kitten"?kitten(id,m):piper(id,m,false)).then(
+      function(b){postMessage({id:id,blob:b})},function(e){postMessage({id:id,error:String(e&&e.message||e)})})}
+}
+var engW=null,engWFail=false,engWId=0,engWP={},engPersist=false;
+function engWorker(){
+  if(engWFail||typeof Worker==="undefined")return null;
+  if(engW)return engW;
+  try{
+    var src=["var KOKORO_URLS="+JSON.stringify(KOKORO_URLS)+",KITTEN_URLS="+JSON.stringify(KITTEN_URLS)+",PIPER_URLS="+JSON.stringify(PIPER_URLS)+";",
+      splitLong,wavBlob,wavConcat,importAny,"("+engWorkerMain+")();"].join("\n");
+    var w=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})),{type:"module"});
+    w.onmessage=function(ev){var m=ev.data,q=engWP[m.id];if(!q)return;
+      if(m.toast){toast(m.toast,true);return}
+      delete engWP[m.id];if(m.error)q.no(new Error(m.error));else q.ok(m.blob)};
+    w.onerror=function(){engWFail=true;engW=null;var q=engWP;engWP={};
+      for(var k in q){var e=new Error("worker");e.workerDead=true;q[k].no(e)}};
+    return engW=w
+  }catch(e){engWFail=true;return null}}
+function engViaWorker(v,text){
+  var w=engWorker();if(!w){var e=new Error("worker");e.workerDead=true;return Promise.reject(e)}
+  return new Promise(function(ok,no){var id=++engWId;engWP[id]={ok:ok,no:no};
+    w.postMessage({id:id,eng:v.engine,voice:v.id,text:text,model:KITTEN_MODEL})}).then(function(b){
+      if(!engPersist){engPersist=true;try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}}   // minta agar model di cache tidak dihapus browser
+      return b})}
+function engMain(v,text){return v.engine==="kokoro"?kokoroGen(v.id,text):v.engine==="kitten"?kittenGen(v.id,text):piperGen(v.id,text)}
 /* satu per satu (antrean) dan di-cache supaya kalimat berikutnya bisa disiapkan lebih dulu */
 function engGen(v,text){
   var key=v.engine+(v.engine==="kitten"?":"+KITTEN_MODEL:"")+"|"+v.id+"|"+text;if(engCache.has(key))return engCache.get(key);
-  var p=engQ=engQ.catch(function(){}).then(function(){return v.engine==="kokoro"?kokoroGen(v.id,text):v.engine==="kitten"?kittenGen(v.id,text):piperGen(v.id,text)});
+  var p=engQ=engQ.catch(function(){}).then(function(){return engViaWorker(v,text).catch(function(e){if(e&&e.workerDead)return engMain(v,text);throw e})});
   engCache.set(key,p);p.catch(function(){engCache.delete(key)});
   if(engCache.size>8)engCache.delete(engCache.keys().next().value);
   return p}
@@ -578,7 +650,7 @@ $("rbody").onclick=function(e){if(e.target.closest(".tr"))return;var s=e.target.
   if(w)showWord(w,+s.dataset.i);else go(+s.dataset.i,true)};
 $("kmodel").value=KITTEN_MODEL;
 $("kmodel").onchange=function(){KITTEN_MODEL=this.value;try{localStorage.setItem(KEY+"-kmodel",KITTEN_MODEL)}catch(e){}
-  var old=engMod.kitten;engMod.kitten=null;if(old)old.then(function(t){if(t&&t.dispose)t.dispose()}).catch(function(){});
+  if(engW)engW.postMessage({cmd:"drop"});var old=engMod.kitten;engMod.kitten=null;if(old)old.then(function(t){if(t&&t.dispose)t.dispose()}).catch(function(){});
   toast("Model Kitten: "+KITTEN_MODEL);if(playing)speak()};
 $("pipall").onclick=function(){piperAll(false)};
 $("rate").onchange=function(){updTime();if(playing)speak()};
