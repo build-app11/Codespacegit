@@ -146,6 +146,8 @@ async function kittenGen(voice, text, model) {
   return Buffer.from(m.wav, "base64");
 }
 
+const kittenCached = () => Object.keys(KITTEN_MODELS).filter((k) => exists(path.join(process.env.HF_HOME || path.join(MODELS_DIR, "hf"), "hub", "models--" + KITTEN_MODELS[k].replace("/", "--"), "snapshots")));
+
 // ---------- API ----------
 const ENGINES = ["kokoro", "kitten", "piper"];
 const VOICE_OK = /^[\w.-]{1,60}$/;
@@ -176,6 +178,6 @@ async function status() {
   }
   const piperBin = probeCache.piperBin, kittenPy = probeCache.kittenPy;
   let kokoroPkg = false; try { require.resolve("kokoro-js"); kokoroPkg = true; } catch (e) {}
-  return { kokoro: { installed: kokoroPkg, cached: kokoroCached() }, kitten: { installed: kittenPy, models: Object.keys(KITTEN_MODELS) }, piper: { installed: piperBin, stored: piperStored() } };
+  return { kokoro: { installed: kokoroPkg, cached: kokoroCached() }, kitten: { installed: kittenPy, models: Object.keys(KITTEN_MODELS), cached: kittenCached() }, piper: { installed: piperBin, stored: piperStored() } };
 }
 module.exports = { synth, preload, status, piperVoices, piperStored, KITTEN_MODELS };
