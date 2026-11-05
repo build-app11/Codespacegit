@@ -13,7 +13,7 @@ const PYTHON = process.env.PYTHON || "python3";
 const KITTEN_MODELS = {
   "nano-int8": "KittenML/kitten-tts-nano-0.8-int8",
   micro: "KittenML/kitten-tts-micro-0.8",
-  nano: "KittenML/kitten-tts-nano-0.8-fp32",
+  nano: "KittenML/kitten-tts-nano-0.8",
   mini: "KittenML/kitten-tts-mini-0.8",
 };
 const KOKORO_ID = "onnx-community/Kokoro-82M-v1.0-ONNX";
@@ -117,14 +117,14 @@ async function piperVoices() {   // daftar resmi suara Piper (satu pembicara)
 const piperStored = () => { try { return fs.readdirSync(PIPER_DIR).filter((f) => f.endsWith(".onnx") && exists(path.join(PIPER_DIR, f + ".json"))).map((f) => f.slice(0, -5)); } catch (e) { return []; } };
 
 // ---------- Kitten (Python) ----------
-let kw = null, kwPending = {}, kwId = 0, kwBuf = "";
+let kw = null, kwPending = {}, kwId = 0, kwBuf = "", kwErr = "";
 function kittenProc() {
   if (kw) return kw;
   const c = spawn(PYTHON, [path.join(__dirname, "kitten_worker.py")], { stdio: ["pipe", "pipe", "pipe"], env: Object.assign({}, process.env, { HF_HOME: process.env.HF_HOME || path.join(MODELS_DIR, "hf") }) });
   const fail = (e) => { kw = null; const q = kwPending; kwPending = {}; for (const k in q) q[k].no(e); };
-  c.on("error", (e) => fail(e.code === "ENOENT" ? new Error("Python tidak ditemukan di server. Pasang Python 3 dan 'pip install kittentts'.") : e));
-  c.on("close", () => fail(new Error("Proses Kitten berhenti. Cek 'pip install kittentts' di server.")));
-  c.stderr.on("data", () => {});
+  c.on("error", (e) => fail(e.code === "ENOENT" ? new Error("Python tidak ditemukan di server. Pasang Python 3 dan 'pip install kittenml'.") : e));
+  c.on("close", () => { const t = kwErr.trim().split("\n").slice(-3).join(" | "); kwErr = ""; fail(new Error("Proses Kitten berhenti." + (t ? " Detail: " + t : " Cek 'pip install kittenml' di server."))); });
+  c.stderr.on("data", (d) => { kwErr = (kwErr + d).slice(-2000); console.log("[kitten]", String(d).trim()); });
   c.stdout.on("data", (d) => {
     kwBuf += d; let i;
     while ((i = kwBuf.indexOf("\n")) >= 0) {
@@ -140,7 +140,7 @@ function kittenCall(msg) {
     c.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + "\n");
   });
 }
-const kittenModel = (k) => { const m = KITTEN_MODELS[k || "nano-int8"]; if (!m) throw new Error("Model Kitten tidak dikenal"); return m; };
+const kittenModel = (k) => { const m = KITTEN_MODELS[k || "nano"]; if (!m) throw new Error("Model Kitten tidak dikenal"); return m; };
 async function kittenGen(voice, text, model) {
   const m = await kittenCall({ model: kittenModel(model), voice, text });
   return Buffer.from(m.wav, "base64");
@@ -171,7 +171,7 @@ function probe(cmd, args) {
 let probeCache = null;
 async function status() {
   if (!probeCache || Date.now() - probeCache.t > 5 * 60 * 1000) {   // probe Python/piper itu lambat, simpan 5 menit
-    const [a, b] = await Promise.all([probe(PIPER_BIN, ["--help"]), probe(PYTHON, ["-c", "import kittentts"])]);
+    const [a, b] = await Promise.all([probe(PIPER_BIN, ["--help"]), probe(PYTHON, ["-c", "import kittenml"]).then((ok) => ok || probe(PYTHON, ["-c", "import kittentts"]))]);
     probeCache = { t: Date.now(), piperBin: a, kittenPy: b };
   }
   const piperBin = probeCache.piperBin, kittenPy = probeCache.kittenPy;

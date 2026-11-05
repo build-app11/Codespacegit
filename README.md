@@ -73,7 +73,7 @@ Yang perlu dipasang di server:
 |---|---|---|
 | Kokoro | `npm install` (paket `kokoro-js`) | 28 suara Inggris. Model q8 (~90 MB) diunduh otomatis ke `models/` saat pertama dipakai. |
 | Piper | `pip install piper-tts` (atau taruh binary `piper` di PATH; atur lewat `PIPER_BIN`) | Suara (.onnx) diunduh otomatis dari Hugging Face ke `models/piper/`. |
-| Kitten | `pip install kittentts` (Python 3.9+; atur lewat `PYTHON`) | Dijalankan lewat `kitten_worker.py`. Nama model ada di `KITTEN_MODELS` dalam `engines.js`. |
+| Kitten | `pip install kittenml` (Python 3.9+; atur lewat `PYTHON`). Alternatif: wheel `kittentts` 0.8.1 dari rilis GitHub KittenML | Dijalankan lewat `kitten_worker.py`. Model "nano-int8" sering gagal (diakui pengembangnya), jadi bawaannya "nano". Nama model ada di `KITTEN_MODELS` dalam `engines.js`. |
 
 **Penyimpanan model:** model disimpan di folder `models/` pada disk server, jadi tetap ada setelah aplikasi ditutup atau server di-restart (jangan commit folder ini ke git). Saat `npm start`, Kokoro yang sudah ada di disk langsung dimuat ke memori. Di daftar suara, suara yang modelnya sudah terpasang diurutkan di atas.
 
