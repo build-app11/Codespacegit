@@ -63,3 +63,24 @@ Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tek
 - **Artikel yang terpotong.** Bagian yang disembunyikan di balik tombol "read more" (sudah ada di HTML, hanya disembunyikan) ikut diambil. Artikel yang dipecah ke beberapa halaman (`rel="next"`, "Halaman berikutnya", nomor halaman 1 2 3, atau "Lihat semua") dibaca sampai maks. 8 halaman dan maks. 45 detik; hanya halaman lanjutan dari artikel yang sama yang diikuti, bukan artikel berikutnya. Isi yang baru dimuat lewat JavaScript setelah tombol ditekan (AJAX) tidak bisa diambil karena server tidak menjalankan JavaScript halaman.
 - Alamat jaringan privat ditolak, termasuk saat ada pengalihan. Artikel berbayar atau yang butuh login tidak didukung.
 - Tidak butuh paket tambahan. `npm run news:test` menguji pembaca feed dan `npm run article:test` menguji pembersih artikel dan pembacaan multi-halaman, keduanya tanpa jaringan.
+
+## Suara: Edge, Piper, Kokoro, dan Google
+Daftar suara berisi suara bawaan browser ditambah tiga mesin yang jalan langsung di browser (WebAssembly), tanpa server dan tanpa akun:
+
+- **Microsoft Edge**: buka aplikasi di browser Edge, lalu suara berlabel "Online (Natural)" muncul otomatis lewat `speechSynthesis` dan diurutkan paling atas.
+- **Kokoro** (`Kokoro · …`): hanya Inggris (AS/Inggris), 28 suara; modelnya satu (Kokoro-82M v1.0, kuantisasi q8). Model q8 sekitar 90 MB, diunduh sekali dari Hugging Face lalu disimpan di cache browser.
+- **Kitten** (`Kitten · …`): hanya Inggris, 8 suara (bella, jasper, luna, bruno, rosie, hugo, kiki, leo). Model dipilih lewat dropdown **Kitten** di pembaca: Nano int8 (25 MB, bawaan), Micro (41 MB), Nano fp32 (56 MB), Mini (80 MB, paling bagus); pilihan tersimpan. Analitik anonim SDK dimatikan (`analytics:false`).
+- **Piper** (`Piper · …`): Inggris, Indonesia, Mandarin, Spanyol, Prancis, Jerman, Portugis, Rusia, Italia, Turki, Arab. Tiap suara sekitar 20-60 MB, diunduh sekali saat pertama dipilih.
+- Tombol **Semua suara Piper** menambahkan seluruh suara satu-pembicara dari daftar resmi Piper ke dropdown (diingat untuk kunjungan berikutnya). Tanpa tombol ini hanya ada daftar pilihan awal.
+- Mesin Piper/Kokoro/Kitten tidak pernah dipilih otomatis; hanya dipakai kalau Anda memilihnya sendiri (supaya tidak ada unduhan model tanpa sengaja). Kalimat berikutnya disiapkan lebih dulu agar jeda antarkalimat pendek.
+- Library dimuat dari jsDelivr (`kokoro-js`, `@kittentts/web`, `@mintplex-labs/piper-tts-web`, cadangan `@diffusionstudio/vits-web`). Ubah `KOKORO_URLS` / `KITTEN_URLS` / `PIPER_URLS` di `index.html` bila perlu mengganti versi. Daftar suara Piper ada di `ENG_VOICES`.
+- Sorotan kata untuk Piper/Kokoro diperkirakan dari posisi audio (bukan event kata asli).
+- Tombol unduh MP3 tetap memakai endpoint Google Translate di server.
+
+## Transkripsi podcast: Whisper di browser atau di server
+Di dialog Podcast ada pilihan **Whisper di browser** (bawaan) dan **Whisper di server**.
+
+- **Di browser**: model Whisper (`Xenova/whisper-tiny|base|small`, kuantisasi q8, sama dengan versi server) diunduh dari Hugging Face ke browser lewat Transformers.js lalu dijalankan di perangkat pengguna. Server hanya mengunduh audio dan men-decode-nya dengan ffmpeg ke PCM 16 kHz lewat `/api/podcast/pcm` (maks. 4 permintaan bersamaan), jadi masalah CORS audio podcast dan memori file panjang tidak muncul di browser. Jendela 30 detik, pemotongan di batas kalimat, penyaringan hening, dan pembuangan ulangan sama dengan versi server, sehingga hasilnya setara.
+- **Pakai GPU (WebGPU)**: opsional, hanya muncul bila browser mendukung. Memakai model `onnx-community/whisper-*` (encoder fp32, decoder q4), jauh lebih cepat tetapi hasilnya bisa sedikit berbeda.
+- **Di server**: cara lama (`/api/podcast/transcribe`), berguna bila perangkat pengguna terlalu lemah.
+- Model diunduh sekali (tiny sekitar 40 MB, base 80 MB, small 250 MB; perkiraan) lalu disimpan di cache browser. Proses di browser memakai WASM, jadi di HP bisa lebih lambat daripada durasi audio; pilih Tiny atau aktifkan GPU.

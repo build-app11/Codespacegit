@@ -140,6 +140,34 @@ app.post("/api/podcast/transcribe", async (req, res) => {
     res.end();
   }
 });
+// Whisper di browser: server hanya mengunduh audio dan men-decode ke PCM 16 kHz mono (aliran biner), model berjalan di perangkat pengguna.
+let pcmBusy = 0;
+app.get("/api/podcast/pcm", async (req, res) => {
+  const start = Math.max(0, Math.min(+req.query.start || 0, 86400));
+  if (!req.query.url) return res.status(400).json({ error: "URL audio kosong" });
+  if (pcmBusy >= 4) return res.status(429).json({ error: "Server sedang menyiapkan audio lain. Coba lagi sebentar lagi." });
+  pcmBusy++;
+  const ac = new AbortController();
+  res.on("close", () => ac.abort());
+  let dir = null;
+  try {
+    const r = await safeFetch(req.query.url, { headers: { "User-Agent": POD_UA }, signal: ac.signal });
+    if (!r.ok) throw new Error("Server audio membalas dengan status " + r.status);
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), "suara-pod-"));
+    const file = path.join(dir, "audio");
+    await podcast.saveBody(r, file);
+    if (ac.signal.aborted) return;
+    res.set({ "Content-Type": "application/octet-stream", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
+    const out = await podcast.pcmStream(file, start, res, ac.signal);
+    if (!out.aborted) res.end();
+  } catch (e) {
+    if (ac.signal.aborted) return;
+    if (!res.headersSent) res.status(502).json({ error: e.message }); else res.destroy();
+  } finally {
+    pcmBusy--;
+    if (dir) fs.rm(dir, { recursive: true, force: true }, () => {});
+  }
+});
 app.get("/api/podcast/status", wrap(async () => podcast.status()));
 
 // ---------- Berita (RSS) ----------

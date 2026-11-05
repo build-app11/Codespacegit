@@ -191,6 +191,35 @@ async function transcribeFile(file, o) {
   return { aborted: false, until: base };
 }
 
+/* Decode audio ke PCM 16 kHz mono 16-bit (little-endian) dan alirkan apa adanya ke `out`.
+   Dipakai bila Whisper dijalankan di browser: server hanya mengunduh dan men-decode (ffmpeg), model jalan di perangkat pengguna. */
+async function pcmStream(file, start, out, signal) {
+  const ff = spawn(ffmpegBin, ["-hide_banner", "-loglevel", "error", "-nostdin", "-ss", String(start || 0), "-i", file,
+    "-vn", "-ac", "1", "-ar", String(SR), "-f", "s16le", "pipe:1"], { stdio: ["ignore", "pipe", "pipe"] });
+  let ferr = "", spawnErr = null, got = 0;
+  ff.stderr.on("data", (d) => { if (ferr.length < 2000) ferr += d; });
+  const closed = new Promise((ok) => { ff.on("close", ok); ff.on("error", (e) => { spawnErr = e; ok(); }); });
+  const kill = () => { try { ff.kill("SIGKILL"); } catch (e) {} };
+  const aborted = () => !!(signal && signal.aborted);
+  const gone = new Promise((ok) => { if (signal) signal.addEventListener("abort", ok, { once: true }); });
+  if (signal) { if (signal.aborted) kill(); else signal.addEventListener("abort", kill, { once: true }); }
+  try {
+    for await (const chunk of ff.stdout) {
+      if (aborted()) break;
+      got += chunk.length;
+      if (!out.write(chunk)) await Promise.race([once(out, "drain"), gone]);
+    }
+  } finally {
+    kill();
+    if (signal) signal.removeEventListener("abort", kill);
+  }
+  await closed;
+  if (aborted()) return { aborted: true };
+  if (spawnErr) throw new Error(spawnErr.code === "ENOENT" ? "ffmpeg tidak ditemukan. Jalankan npm install (ffmpeg-static) atau pasang ffmpeg di sistem." : "ffmpeg gagal: " + spawnErr.message);
+  if (!got) throw new Error("Audio tidak bisa dibaca" + (ferr ? ": " + ferr.trim().split("\n").pop() : ""));
+  return { aborted: false, bytes: got };
+}
+
 async function status() {
   const out = { ffmpeg: false, whisper: false, models: Object.keys(MODELS) };
   out.ffmpeg = await new Promise((ok) => {
@@ -201,4 +230,4 @@ async function status() {
   return out;
 }
 
-module.exports = { MODELS, parseFeed, saveBody, getAsr, transcribeFile, status };
+module.exports = { MODELS, parseFeed, saveBody, getAsr, transcribeFile, pcmStream, status };
