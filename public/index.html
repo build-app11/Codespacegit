@@ -169,7 +169,7 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
     <div class="ctl"><label class="sub"><input type="checkbox" id="phrm" checked> Romanisasi</label><label class="sub"><input type="checkbox" id="phip" checked> IPA</label></div>
     <div class="ctl"><select id="voice" aria-label="Suara"></select>
       <select id="rate" aria-label="Kecepatan"><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
-    <div class="ctl" id="engrow"><label class="sub" for="kmodel">Kitten</label><select id="kmodel" aria-label="Model Kitten"><option value="nano-int8">Nano int8 · 25 MB</option><option value="micro">Micro · 41 MB</option><option value="nano">Nano fp32 · 56 MB</option><option value="mini">Mini · 80 MB</option></select><label class="sub" id="kgpul" style="display:none"><input type="checkbox" id="kgpu"> Kokoro di perangkat (WebGPU, ±330 MB)</label><button class="btn" id="pipall" title="Tambahkan semua suara Piper (satu pembicara) ke daftar suara">Semua suara Piper</button><button class="btn" id="mdbtn" title="Unduh model suara lebih dulu">Unduh model</button></div>
+    <div class="ctl" id="engrow"><label class="sub" for="kmodel">Kitten</label><select id="kmodel" aria-label="Model Kitten"><option value="nano-int8">Nano int8 · 25 MB (sering error)</option><option value="micro">Micro · 41 MB</option><option value="nano">Nano fp32 · 56 MB</option><option value="mini">Mini · 80 MB</option></select><label class="sub" id="kgpul" style="display:none"><input type="checkbox" id="kgpu"> Kokoro di perangkat (WebGPU, ±330 MB)</label><button class="btn" id="pipall" title="Tambahkan semua suara Piper (satu pembicara) ke daftar suara">Semua suara Piper</button><button class="btn" id="mdbtn" title="Unduh model suara lebih dulu">Unduh model</button></div>
     <div class="ctl"><select id="tl" aria-label="Bahasa terjemahan"><option value="id">Indonesia</option><option value="en">English</option><option value="ms">Melayu</option><option value="ar">العربية</option><option value="zh-CN">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="ru">Русский</option><option value="hi">हिन्दी</option><option value="pt">Português</option><option value="tr">Türkçe</option><option value="th">ไทย</option><option value="nl">Nederlands</option></select>
       <select id="voice2" aria-label="Suara untuk terjemahan" title="Suara untuk bahasa terjemahan"></select>
       <button class="btn" id="trbtn">🌐 Terjemahkan</button><label class="sub"><input type="checkbox" id="trspeak"> Bacakan terjemahan</label></div>
@@ -474,7 +474,8 @@ var ENG_VOICES=[
   {name:"Piper · ar_JO kareem",lang:"ar-JO",engine:"piper",id:"ar_JO-kareem-medium"}
 ];
 /* Piper, Kokoro & Kitten berjalan di SERVER (engines.js). Browser hanya mengirim teks dan memutar WAV hasilnya. */
-var KITTEN_MODEL=(function(){try{return localStorage.getItem(KEY+"-kmodel")}catch(e){}})()||"nano-int8"; // nano-int8, micro, nano, mini
+var KITTEN_MODEL=(function(){try{return localStorage.getItem(KEY+"-kmodel")}catch(e){}})()||"nano"; // nano, micro, mini, nano-int8 (int8 sering gagal)
+if(KITTEN_MODEL==="nano-int8"){KITTEN_MODEL="nano";try{localStorage.setItem(KEY+"-kmodel","nano")}catch(e){}}
 var engQ=Promise.resolve(),engCache=new Map(),engAudio=null,engTimer=0;
 function allVoices(){return (synth?synth.getVoices():[]).concat(ENG_VOICES)}
 function importAny(urls){var i=0;function t(){return import(urls[i]).catch(function(e){if(++i>=urls.length)throw e;return t()})}return t()}
@@ -529,7 +530,7 @@ function mdStat(){
     if(st.error)return;var pst=st.piper||{},kk=st.kokoro||{},kt=st.kitten||{};
     function srv(id,ok,inst,name){var e=$(id);if(inst===false){e.textContent="belum terpasang di server ("+name+")";e.className="sub"}else mdSet(id,ok)}
     srv("mds-kokoro",kk.cached,kk.installed,"npm install");
-    srv("mds-kitten",f["kitten:"+KITTEN_MODEL],kt.installed,"pip install kittentts");
+    srv("mds-kitten",f["kitten:"+KITTEN_MODEL],kt.installed,"pip install kittenml");
     srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"perintah piper")}).catch(function(){});
   if(window.caches)caches.open("transformers-cache").then(function(c){return c.keys()}).then(function(ks){   // Kokoro dan Whisper: cek langsung isi cache browser
     var wm=$("mdwm").value;
