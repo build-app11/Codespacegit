@@ -77,7 +77,7 @@ Yang perlu dipasang di server:
 
 **Penyimpanan model:** model disimpan di folder `models/` pada disk server, jadi tetap ada setelah aplikasi ditutup atau server di-restart (jangan commit folder ini ke git). Saat `npm start`, Kokoro yang sudah ada di disk langsung dimuat ke memori. Di daftar suara, suara yang modelnya sudah terpasang diurutkan di atas.
 
-**Mode hibrida:** di browser yang mendukung WebGPU muncul kotak centang "Kokoro di perangkat (WebGPU, ±330 MB)". Kalau dicentang, Kokoro berjalan di perangkat pengguna (model fp32 diunduh sekali ke cache browser) dan server tidak terbebani. Kalau WebGPU gagal atau tidak tersedia, otomatis kembali ke server. Bawaan: mati, supaya pengguna data seluler tidak mengunduh 330 MB tanpa sadar.
+**Mode hibrida:** di baris pengaturan ada kotak centang "Kitten di perangkat" dan "Piper di perangkat" (WASM, jalan di semua browser modern, model diunduh ke cache browser saat pertama dipakai). Bawaan: mati. Kalau gagal, otomatis kembali ke server. Selain itu, di browser yang mendukung WebGPU muncul kotak centang "Kokoro di perangkat (WebGPU, ±330 MB)". Kalau dicentang, Kokoro berjalan di perangkat pengguna (model fp32 diunduh sekali ke cache browser) dan server tidak terbebani. Kalau WebGPU gagal atau tidak tersedia, otomatis kembali ke server. Bawaan: mati, supaya pengguna data seluler tidak mengunduh 330 MB tanpa sadar.
 
 Cek status di `/api/tts/engine/status` atau di log saat `npm start`. Tombol **Unduh model** sekarang mengunduh ke server. Bila satu mesin belum terpasang, mesin lain tetap jalan. Folder `models/` bisa dipindah dengan `MODELS_DIR`. Di CPU server, Kokoro biasanya paling lambat dan Kitten Nano paling cepat; kalau server kecil, mulai dari Kitten atau Piper.
 
