@@ -24,6 +24,7 @@
     "any-ascii": "^0.3.0",
     "phonemizer": "^1.2.1",
     "@huggingface/transformers": "^3.0.0",
+    "kokoro-js": "^1.2.1",
     "ffmpeg-static": "^5.2.0"
   },
   "engines": {

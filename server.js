@@ -11,6 +11,7 @@ const phon = require("./phon");
 const podcast = require("./podcast");
 const news = require("./news");
 const article = require("./article");
+const engines = require("./engines");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -235,6 +236,17 @@ app.post("/api/tts", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
+// Mesin suara di server: Kokoro, Kitten, Piper (lebih cepat daripada di browser, model disimpan di server)
+app.post("/api/tts/engine", async (req, res) => {
+  try {
+    const wavBuf = await engines.synth(req.body || {});
+    res.set("Content-Type", "audio/wav").send(wavBuf);
+  } catch (e) { res.status(502).json({ error: e.message }); }
+});
+app.post("/api/tts/engine/preload", wrap(async (req) => { await engines.preload(req.body || {}); return { ok: true }; }));
+app.get("/api/tts/engine/status", wrap(async () => engines.status()));
+app.get("/api/tts/piper/voices", wrap(async () => ({ voices: await engines.piperVoices() })));
+
 // EPUB: baca urutan bab (spine) lalu ambil teksnya
 function fromEpub(buf) {
   const zip = new AdmZip(buf);
@@ -344,5 +356,10 @@ app.get("/api/word", wrap(async (req) => {
 
 app.listen(process.env.PORT || 3000, () => {
   console.log("Buka http://localhost:3000");
+  engines.status().then((st) => {
+    console.log("Mesin suara:", JSON.stringify(st));
+    // model yang sudah ada di disk langsung dimuat ke memori, jadi permintaan pertama tidak lambat
+    if (st.kokoro.installed && st.kokoro.cached) engines.preload({ engine: "kokoro" }).then(() => console.log("Kokoro siap di memori")).catch((e) => console.log("Kokoro gagal dimuat:", e.message));
+  }).catch(() => {});
   phon.status().then((st) => console.log("Fonetik:", JSON.stringify(st))).catch(() => {});   // sekaligus memanaskan kamus
 });

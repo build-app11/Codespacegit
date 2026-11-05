@@ -64,21 +64,24 @@ Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tek
 - Alamat jaringan privat ditolak, termasuk saat ada pengalihan. Artikel berbayar atau yang butuh login tidak didukung.
 - Tidak butuh paket tambahan. `npm run news:test` menguji pembaca feed dan `npm run article:test` menguji pembersih artikel dan pembacaan multi-halaman, keduanya tanpa jaringan.
 
-## Suara: Edge, Piper, Kokoro, dan Google
-Daftar suara berisi suara bawaan browser ditambah tiga mesin yang jalan langsung di browser (WebAssembly), tanpa server dan tanpa akun:
+## Suara: Edge, Piper, Kokoro, Kitten, dan Google
+Kokoro, Kitten, dan Piper sekarang berjalan **di server** (`engines.js`). Browser hanya mengirim teks ke `/api/tts/engine` dan memutar WAV hasilnya. Model dimuat sekali dan tetap di memori server, jadi permintaan berikutnya cepat dan HP/laptop pengguna tidak perlu mengunduh model. Suara bawaan browser dan Microsoft Edge ("Online (Natural)") tetap lewat `speechSynthesis`.
 
-- **Microsoft Edge**: buka aplikasi di browser Edge, lalu suara berlabel "Online (Natural)" muncul otomatis lewat `speechSynthesis` dan diurutkan paling atas.
-- **Kokoro** (`Kokoro · …`): hanya Inggris (AS/Inggris), 28 suara; modelnya satu (Kokoro-82M v1.0, kuantisasi q8). Model q8 sekitar 90 MB, diunduh sekali dari Hugging Face lalu disimpan di cache browser.
-- **Kitten** (`Kitten · …`): hanya Inggris, 8 suara (bella, jasper, luna, bruno, rosie, hugo, kiki, leo). Model dipilih lewat dropdown **Kitten** di pembaca: Nano int8 (25 MB, bawaan), Micro (41 MB), Nano fp32 (56 MB), Mini (80 MB, paling bagus); pilihan tersimpan. Analitik anonim SDK dimatikan (`analytics:false`).
-- **Piper** (`Piper · …`): Inggris, Indonesia, Mandarin, Spanyol, Prancis, Jerman, Portugis, Rusia, Italia, Turki, Arab. Tiap suara sekitar 20-60 MB, diunduh sekali saat pertama dipilih.
-- Tombol **Semua suara Piper** menambahkan seluruh suara satu-pembicara dari daftar resmi Piper ke dropdown (diingat untuk kunjungan berikutnya). Tanpa tombol ini hanya ada daftar pilihan awal.
-- Piper, Kokoro, dan Kitten dijalankan di **Web Worker** (thread terpisah), jadi halaman tetap bisa dipakai saat model dimuat atau suara dibuat. Bila Worker modul tidak didukung browser, otomatis kembali ke thread utama. Saat model sudah ada di cache browser, pesan yang tampil "Memuat model … dari cache"; browser juga diminta menyimpan cache itu secara permanen (`storage.persist`).
-- Tombol **Unduh model** (di bawah dropdown suara) membuka dialog untuk mengunduh Kokoro, Kitten, satu suara Piper, atau model Whisper lebih dulu, lengkap dengan progres dan status "sudah di perangkat". Layar dijaga tetap menyala selama mengunduh (Wake Lock) dan penyimpanan diminta permanen. Browser tidak melanjutkan unduhan kalau tab ditutup atau dibekukan sistem, jadi biarkan tab terbuka.
-- Di dialog Unduh model ada **Unduh semua** untuk Piper: pilih cakupan "Bahasa teks ini saja" atau "Semua suara Piper" (memuat daftar resmi dulu). Aplikasi menghitung perkiraan ukuran, mengecek ruang penyimpanan browser, meminta konfirmasi, melewati suara yang sudah diunduh, melanjutkan bila ada yang gagal, dan bisa dibatalkan (berhenti setelah suara yang sedang berjalan selesai). Semua suara Piper bisa mencapai beberapa GB.
-- Mesin Piper/Kokoro/Kitten tidak pernah dipilih otomatis; hanya dipakai kalau Anda memilihnya sendiri (supaya tidak ada unduhan model tanpa sengaja). Kalimat berikutnya disiapkan lebih dulu agar jeda antarkalimat pendek.
-- Library dimuat dari jsDelivr (`kokoro-js`, `@kittentts/web`, `@mintplex-labs/piper-tts-web`, cadangan `@diffusionstudio/vits-web`). Ubah `KOKORO_URLS` / `KITTEN_URLS` / `PIPER_URLS` di `index.html` bila perlu mengganti versi. Daftar suara Piper ada di `ENG_VOICES`.
-- Sorotan kata untuk Piper/Kokoro diperkirakan dari posisi audio (bukan event kata asli).
-- Tombol unduh MP3 tetap memakai endpoint Google Translate di server.
+Yang perlu dipasang di server:
+
+| Mesin | Pemasangan | Catatan |
+|---|---|---|
+| Kokoro | `npm install` (paket `kokoro-js`) | 28 suara Inggris. Model q8 (~90 MB) diunduh otomatis ke `models/` saat pertama dipakai. |
+| Piper | `pip install piper-tts` (atau taruh binary `piper` di PATH; atur lewat `PIPER_BIN`) | Suara (.onnx) diunduh otomatis dari Hugging Face ke `models/piper/`. |
+| Kitten | `pip install kittentts` (Python 3.9+; atur lewat `PYTHON`) | Dijalankan lewat `kitten_worker.py`. Nama model ada di `KITTEN_MODELS` dalam `engines.js`. |
+
+**Penyimpanan model:** model disimpan di folder `models/` pada disk server, jadi tetap ada setelah aplikasi ditutup atau server di-restart (jangan commit folder ini ke git). Saat `npm start`, Kokoro yang sudah ada di disk langsung dimuat ke memori. Di daftar suara, suara yang modelnya sudah terpasang diurutkan di atas.
+
+**Mode hibrida:** di browser yang mendukung WebGPU muncul kotak centang "Kokoro di perangkat (WebGPU, ±330 MB)". Kalau dicentang, Kokoro berjalan di perangkat pengguna (model fp32 diunduh sekali ke cache browser) dan server tidak terbebani. Kalau WebGPU gagal atau tidak tersedia, otomatis kembali ke server. Bawaan: mati, supaya pengguna data seluler tidak mengunduh 330 MB tanpa sadar.
+
+Cek status di `/api/tts/engine/status` atau di log saat `npm start`. Tombol **Unduh model** sekarang mengunduh ke server. Bila satu mesin belum terpasang, mesin lain tetap jalan. Folder `models/` bisa dipindah dengan `MODELS_DIR`. Di CPU server, Kokoro biasanya paling lambat dan Kitten Nano paling cepat; kalau server kecil, mulai dari Kitten atau Piper.
+
+Sorotan kata untuk mesin ini diperkirakan dari posisi audio. Tombol unduh MP3 tetap memakai endpoint Google Translate di server.
 
 ## Transkripsi podcast: Whisper di browser atau di server
 Di dialog Podcast ada pilihan **Whisper di browser** (bawaan) dan **Whisper di server**.
