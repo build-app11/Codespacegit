@@ -64,7 +64,7 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
 #pep{width:100%}
 #podlg .ctl select{flex:1;min-width:0}
 #podlg progress{accent-color:var(--accent)}
-.pfoot{margin-top:8px;gap:5px}.pfoot .btn{padding:10px 9px;white-space:nowrap}
+.mdrow{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:9px 0;border-top:1px solid var(--line)}.mdrow b{flex:1 1 140px;font-weight:600;font-size:14px}.mdrow select{max-width:100%;min-width:0}.mdok{color:#1a7f4b}.pfoot{margin-top:8px;gap:5px}.pfoot .btn{padding:10px 9px;white-space:nowrap}
 .ptx{position:relative;max-height:34vh;overflow-y:auto;background:var(--bg);border:1px solid var(--line);border-radius:12px;padding:8px 10px;margin:10px 0;font-size:15px;line-height:1.55}
 .ptx:empty::before{content:"Hasil transkripsi muncul di sini. Ketuk satu baris untuk melompat ke bagian itu di audio.";color:var(--muted)}
 .sg{cursor:pointer;padding:2px 4px;border-radius:6px}.sg.on{background:var(--hl)}
@@ -133,6 +133,16 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
     <div class="ptx" id="ptx"></div>
   </div>
   <div class="row pfoot"><button class="btn" id="podclose">Tutup</button><span style="flex:1"></span><button class="btn" id="ptxt" disabled>⬇ TXT</button><button class="btn" id="psrt" disabled>⬇ SRT</button><button class="btn" id="psave" disabled title="Simpan ke Library">Simpan</button></div></dialog>
+<dialog id="mdlg"><h2 style="margin:0 0 6px;font-size:20px">Unduh model suara</h2>
+  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Model disimpan di browser ini dan dijalankan di perangkat Anda. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
+  <div class="mdrow"><b>Kokoro <span class="sub">Inggris · ±90 MB</span></b><span class="sub" id="mds-kokoro"></span><button class="btn" id="mdd-kokoro">Unduh</button></div>
+  <div class="mdrow"><b>Kitten <span class="sub" id="mdkn"></span></b><span class="sub" id="mds-kitten"></span><button class="btn" id="mdd-kitten">Unduh</button></div>
+  <div class="mdrow"><b>Piper</b><select id="mdpv" aria-label="Suara Piper"></select><span class="sub" id="mds-piper"></span><button class="btn" id="mdd-piper">Unduh</button></div>
+  <div class="mdrow"><b>Piper <span class="sub">banyak sekaligus</span></b><select id="mdpscope" aria-label="Cakupan unduhan Piper"><option value="lang">Bahasa teks ini saja</option><option value="all">Semua suara Piper</option></select><button class="btn" id="mdd-pall">Unduh semua</button></div>
+  <div class="mdrow"><b>Whisper <span class="sub">transkrip</span></b><select id="mdwm" aria-label="Model Whisper"><option value="tiny">Tiny · ±40 MB</option><option value="base" selected>Base · ±80 MB</option><option value="small">Small · ±250 MB</option></select><span class="sub" id="mds-whisper"></span><button class="btn" id="mdd-whisper">Unduh</button></div>
+  <progress id="mdbar" max="100" hidden style="width:100%;margin-top:8px"></progress><button class="btn" id="mdcancel" hidden style="margin-top:6px">Batalkan</button>
+  <div class="sub" id="mdmsg" style="margin:6px 0"></div>
+  <div class="row"><button class="btn" id="mdclose">Tutup</button></div></dialog>
 <dialog id="newsdlg"><h2 style="margin:0 0 10px;font-size:20px">Berita (RSS)</h2>
   <div style="display:flex;gap:8px"><input type="text" id="nurl" inputmode="url" placeholder="URL RSS/Atom atau alamat situs berita" style="margin:0"><button class="btn" id="nload">Muat</button></div>
   <div class="nchips" id="nchips"></div>
@@ -159,7 +169,7 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
     <div class="ctl"><label class="sub"><input type="checkbox" id="phrm" checked> Romanisasi</label><label class="sub"><input type="checkbox" id="phip" checked> IPA</label></div>
     <div class="ctl"><select id="voice" aria-label="Suara"></select>
       <select id="rate" aria-label="Kecepatan"><option value="0.75">0.75x</option><option value="1" selected>1x</option><option value="1.25">1.25x</option><option value="1.5">1.5x</option><option value="2">2x</option></select></div>
-    <div class="ctl" id="engrow"><label class="sub" for="kmodel">Kitten</label><select id="kmodel" aria-label="Model Kitten"><option value="nano-int8">Nano int8 · 25 MB</option><option value="micro">Micro · 41 MB</option><option value="nano">Nano fp32 · 56 MB</option><option value="mini">Mini · 80 MB</option></select><button class="btn" id="pipall" title="Tambahkan semua suara Piper (satu pembicara) ke daftar suara">Semua suara Piper</button></div>
+    <div class="ctl" id="engrow"><label class="sub" for="kmodel">Kitten</label><select id="kmodel" aria-label="Model Kitten"><option value="nano-int8">Nano int8 · 25 MB</option><option value="micro">Micro · 41 MB</option><option value="nano">Nano fp32 · 56 MB</option><option value="mini">Mini · 80 MB</option></select><button class="btn" id="pipall" title="Tambahkan semua suara Piper (satu pembicara) ke daftar suara">Semua suara Piper</button><button class="btn" id="mdbtn" title="Unduh model suara lebih dulu">Unduh model</button></div>
     <div class="ctl"><select id="tl" aria-label="Bahasa terjemahan"><option value="id">Indonesia</option><option value="en">English</option><option value="ms">Melayu</option><option value="ar">العربية</option><option value="zh-CN">中文</option><option value="ja">日本語</option><option value="ko">한국어</option><option value="es">Español</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="ru">Русский</option><option value="hi">हिन्दी</option><option value="pt">Português</option><option value="tr">Türkçe</option><option value="th">ไทย</option><option value="nl">Nederlands</option></select>
       <select id="voice2" aria-label="Suara untuk terjemahan" title="Suara untuk bahasa terjemahan"></select>
       <button class="btn" id="trbtn">🌐 Terjemahkan</button><label class="sub"><input type="checkbox" id="trspeak"> Bacakan terjemahan</label></div>
@@ -536,6 +546,7 @@ function engWorkerMain(){   // berjalan di dalam Web Worker (bukan di halaman)
       return mod.KokoroTTS.from_pretrained("onnx-community/Kokoro-82M-v1.0-ONNX",{dtype:"q8",device:"wasm",
         progress_callback:function(p){if(!cached&&p&&p.status==="progress"&&p.file)note(id,"Mengunduh Kokoro: "+p.file.split("/").pop()+" "+Math.round(p.progress||0)+"%")}})
     })().catch(function(e){inst.kokoro=null;throw e});
+    if(m.preload)return inst.kokoro.then(function(){return true});
     return inst.kokoro.then(function(t){
       return seq(splitLong(m.text,250),function(c){return t.generate(c,{voice:m.voice})}).then(function(acc){
         var n=0,o=0;acc.forEach(function(a){n+=a.audio.length});var all=new Float32Array(n);
@@ -546,6 +557,7 @@ function engWorkerMain(){   // berjalan di dalam Web Worker (bukan di halaman)
       note(id,"Memuat model Kitten ("+m.model+")…");
       return mod.KittenTTS.create({model:m.model,analytics:false},function(p){note(id,"Memuat Kitten ("+m.model+")… "+Math.round(p*100)+"%")})
     }).catch(function(e){inst[key]=null;throw e});
+    if(m.preload)return inst[key].then(function(){return true});
     return inst[key].then(function(t){
       return seq(splitLong(m.text,300),function(c){return t.generate(c,{voice:m.voice}).then(function(r){return r.wavData()})}).then(function(acc){
         return new Blob([acc.length>1?wavConcat(acc):acc[0]],{type:"audio/wav"})})})}
@@ -554,7 +566,7 @@ function engWorkerMain(){   // berjalan di dalam Web Worker (bukan di halaman)
     return inst.piper.then(function(mod){
       return Promise.resolve(mod.stored?mod.stored():[]).catch(function(){return []}).then(function(st){
         var pre=st.indexOf(m.voice)>=0?Promise.resolve():mod.download(m.voice,function(p){if(p&&p.total)note(id,"Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%")});
-        return pre.then(function(){return mod.predict({text:m.text,voiceId:m.voice})})}).catch(function(e){
+        return pre.then(function(){return m.preload?true:mod.predict({text:m.text,voiceId:m.voice})})}).catch(function(e){
         var msg=String(e&&e.message||e);
         if(!retry&&BAD.test(msg)){   // berkas model di penyimpanan rusak/terpotong: hapus, unduh ulang, coba sekali lagi
           note(id,"Berkas suara rusak, mengunduh ulang…");
@@ -575,23 +587,95 @@ function engWorker(){
       splitLong,wavBlob,wavConcat,importAny,"("+engWorkerMain+")();"].join("\n");
     var w=new Worker(URL.createObjectURL(new Blob([src],{type:"text/javascript"})),{type:"module"});
     w.onmessage=function(ev){var m=ev.data,q=engWP[m.id];if(!q)return;
-      if(m.toast){toast(m.toast,true);return}
+      if(m.toast){if(q.on)q.on(m.toast);else toast(m.toast,true);return}
       delete engWP[m.id];if(m.error)q.no(new Error(m.error));else q.ok(m.blob)};
     w.onerror=function(){engWFail=true;engW=null;var q=engWP;engWP={};
       for(var k in q){var e=new Error("worker");e.workerDead=true;q[k].no(e)}};
     return engW=w
   }catch(e){engWFail=true;return null}}
-function engViaWorker(v,text){
+function engCall(msg,onNote){
   var w=engWorker();if(!w){var e=new Error("worker");e.workerDead=true;return Promise.reject(e)}
-  return new Promise(function(ok,no){var id=++engWId;engWP[id]={ok:ok,no:no};
-    w.postMessage({id:id,eng:v.engine,voice:v.id,text:text,model:KITTEN_MODEL})}).then(function(b){
-      if(!engPersist){engPersist=true;try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}}   // minta agar model di cache tidak dihapus browser
-      return b})}
+  return new Promise(function(ok,no){var id=++engWId;engWP[id]={ok:ok,no:no,on:onNote};msg.id=id;msg.model=KITTEN_MODEL;w.postMessage(msg)})}
+function engViaWorker(v,text){
+  return engCall({eng:v.engine,voice:v.id,text:text}).then(function(b){
+    if(!engPersist){engPersist=true;try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist()}catch(e){}}   // minta agar model di cache tidak dihapus browser
+    return b})}
 function engMain(v,text){return v.engine==="kokoro"?kokoroGen(v.id,text):v.engine==="kitten"?kittenGen(v.id,text):piperGen(v.id,text)}
+/* ---------- Unduh model lebih dulu (Kokoro, Kitten, Piper, Whisper) ---------- */
+function mdlGet(){try{return JSON.parse(localStorage.getItem(KEY+"-mdl")||"{}")}catch(e){return {}}}
+function mdlMark(k){try{var o=mdlGet();if(!o[k]){o[k]=1;localStorage.setItem(KEY+"-mdl",JSON.stringify(o))}}catch(e){}}
+function mdlKey(v){return v.engine==="kokoro"?"kokoro":v.engine==="kitten"?"kitten:"+KITTEN_MODEL:"piper:"+v.id}
+function mdlLoad(v,on){   // hanya memuat/mengunduh model, tanpa membuat suara
+  return engCall({eng:v.engine,voice:v.id,text:"",preload:true},on).catch(function(e){
+    if(!(e&&e.workerDead))throw e;
+    return v.engine==="kokoro"?kokoroLoad():v.engine==="kitten"?kittenLoad():piperLoad().then(function(m){
+      return m.download(v.id,function(p){if(p&&p.total)on("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%")})})})}
+var mdBusy=false,mdWake=null;
+function mdSet(id,ok){var e=$(id);e.textContent=ok?"✓ sudah di perangkat":"belum diunduh";e.className=ok?"sub mdok":"sub"}
+function mdStat(){
+  var f=mdlGet();$("mdkn").textContent=KITTEN_MODEL;
+  mdSet("mds-kokoro",f.kokoro);mdSet("mds-kitten",f["kitten:"+KITTEN_MODEL]);mdSet("mds-piper",f["piper:"+$("mdpv").value]);mdSet("mds-whisper",f["whisper:"+$("mdwm").value]);
+  if(window.caches)caches.open("transformers-cache").then(function(c){return c.keys()}).then(function(ks){   // Kokoro dan Whisper: cek langsung isi cache browser
+    var wm=$("mdwm").value;
+    mdSet("mds-kokoro",ks.some(function(r){return /Kokoro-82M-v1\.0-ONNX/.test(r.url)&&/\.onnx/.test(r.url)}));
+    mdSet("mds-whisper",ks.some(function(r){return r.url.indexOf("whisper-"+wm+"/")>=0&&/\.onnx/.test(r.url)}))}).catch(function(){})}
+function mdPiperOpts(){var s=$("mdpv"),old=s.value;s.innerHTML="";
+  ENG_VOICES.forEach(function(x){if(x.engine!=="piper")return;var o=document.createElement("option");o.value=x.id;o.textContent=x.name.replace("Piper · ","")+" ("+x.lang+")";s.appendChild(o)});
+  if(old)s.value=old}
+function mdRun(key,label,fn){
+  if(mdBusy)return;mdBusy=true;
+  ["kokoro","kitten","piper","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=true});
+  var bar=$("mdbar");bar.hidden=false;bar.removeAttribute("value");$("mdmsg").textContent="Memulai…";
+  try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){mdWake=l}).catch(function(){})}catch(e){}   // layar tetap menyala dan cache dilindungi
+  function on(t,pv){$("mdmsg").textContent=t;var m=/(\d+)%/.exec(t);if(pv!=null)bar.value=pv;else if(m)bar.value=+m[1];else bar.removeAttribute("value")}
+  Promise.resolve().then(function(){return fn(on)}).then(function(r){
+    var msg=typeof r==="string"?r:"Selesai: "+label;if(key)mdlMark(key);bar.value=100;$("mdmsg").textContent=msg;if(!$("mdlg").open)toast(typeof r==="string"?r:"Model "+label+" siap")
+  }).catch(function(e){$("mdmsg").textContent="Gagal: "+(e&&e.message||e)}).then(function(){
+    mdBusy=false;["kokoro","kitten","piper","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=false});$("mdcancel").hidden=true;
+    try{if(mdWake){mdWake.release();mdWake=null}}catch(e){}mdStat()})}
+var mdAbort=false;
+function piperMB(id){var q=id.split("-").pop();return q==="x_low"?20:q==="low"?60:q==="high"?110:65}   // perkiraan kasar ukuran per suara
+function mdBulkRun(list){
+  mdAbort=false;$("mdcancel").hidden=false;
+  mdRun(null,"Piper",function(on){
+    var done=0,fail=0;
+    return list.reduce(function(p,x,i){return p.then(function(){
+      if(mdAbort)return;
+      return mdlLoad({engine:"piper",id:x.id},function(t){var m=/(\d+)%/.exec(t),f=m?+m[1]/100:0;
+        on("Piper "+(i+1)+"/"+list.length+" · "+x.id+(m?" · "+m[1]+"%":""),(i+f)/list.length*100)})
+        .then(function(){mdlMark("piper:"+x.id);done++},function(){fail++})})},Promise.resolve()).then(function(){
+      return (mdAbort?"Dibatalkan":"Selesai")+": "+done+" suara Piper terunduh"+(fail?", "+fail+" gagal":"")})})}
+function mdBulk(){
+  if(mdBusy)return;
+  var all=$("mdpscope").value==="all";
+  $("mdmsg").textContent=all?"Memuat daftar suara Piper…":"Menyiapkan…";
+  (all?piperAll(true):Promise.resolve()).then(function(){
+    var L=mainLang(),f=mdlGet(),list=ENG_VOICES.filter(function(x){return x.engine==="piper"&&!f["piper:"+x.id]&&(all||!L||vMatch(x,L))}),mb=0;
+    if(!list.length){$("mdmsg").textContent="Tidak ada suara Piper baru untuk diunduh.";return}
+    list.forEach(function(x){mb+=piperMB(x.id)});
+    var size=mb>=1024?(mb/1024).toFixed(1)+" GB":mb+" MB";
+    function go(){
+      if(!confirm("Unduh "+list.length+" suara Piper (± "+size+")?\nGunakan Wi-Fi dan biarkan tab tetap terbuka. Bisa dibatalkan kapan saja."))return;
+      mdBulkRun(list)}
+    if(navigator.storage&&navigator.storage.estimate)navigator.storage.estimate().then(function(e){
+      var free=(e.quota||0)-(e.usage||0);
+      if(e.quota&&mb*1048576>free*0.9){$("mdmsg").textContent="Ruang penyimpanan browser kurang (sisa ±"+Math.round(free/1048576)+" MB, perlu ±"+mb+" MB). Pilih \"Bahasa teks ini saja\" atau hapus data lain.";return}
+      go()}).catch(go);
+    else go()})}
+$("mdd-pall").onclick=mdBulk;
+$("mdcancel").onclick=function(){mdAbort=true;$("mdmsg").textContent="Membatalkan setelah suara yang sedang diunduh selesai…"};
+$("mdbtn").onclick=function(){mdPiperOpts();$("mdlg").showModal();mdStat()};
+$("mdclose").onclick=function(){$("mdlg").close()};
+$("mdpv").onchange=$("mdwm").onchange=mdStat;
+$("mdd-kokoro").onclick=function(){mdRun("kokoro","Kokoro",function(on){return mdlLoad({engine:"kokoro",id:"af_heart"},on)})};
+$("mdd-kitten").onclick=function(){mdRun("kitten:"+KITTEN_MODEL,"Kitten "+KITTEN_MODEL,function(on){return mdlLoad({engine:"kitten",id:"luna"},on)})};
+$("mdd-piper").onclick=function(){var id=$("mdpv").value;if(!id)return;mdRun("piper:"+id,"Piper "+id,function(on){return mdlLoad({engine:"piper",id:id},on)})};
+$("mdd-whisper").onclick=function(){var m=$("mdwm").value;mdRun("whisper:"+m,"Whisper "+m,function(on){
+  podPct=function(x){on("Mengunduh model Whisper… "+x+"%")};on("Memuat model Whisper…");return podAsr(m,false)})};
 /* satu per satu (antrean) dan di-cache supaya kalimat berikutnya bisa disiapkan lebih dulu */
 function engGen(v,text){
   var key=v.engine+(v.engine==="kitten"?":"+KITTEN_MODEL:"")+"|"+v.id+"|"+text;if(engCache.has(key))return engCache.get(key);
-  var p=engQ=engQ.catch(function(){}).then(function(){return engViaWorker(v,text).catch(function(e){if(e&&e.workerDead)return engMain(v,text);throw e})});
+  var p=engQ=engQ.catch(function(){}).then(function(){return engViaWorker(v,text).catch(function(e){if(e&&e.workerDead)return engMain(v,text);throw e}).then(function(b){mdlMark(mdlKey(v));return b})});
   engCache.set(key,p);p.catch(function(){engCache.delete(key)});
   if(engCache.size>8)engCache.delete(engCache.keys().next().value);
   return p}
