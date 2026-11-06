@@ -237,7 +237,7 @@ app.post("/api/tts", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// Mesin suara di server: Kokoro, Kitten, Piper (lebih cepat daripada di browser, model disimpan di server)
+// Mesin suara di server: Kokoro, Kitten, Piper, Pocket, Chatterbox, XTTS, VibeVoice (lebih cepat daripada di browser, model disimpan di server)
 app.post("/api/tts/engine", async (req, res) => {
   try {
     const wavBuf = await engines.synth(req.body || {});
@@ -246,9 +246,9 @@ app.post("/api/tts/engine", async (req, res) => {
 });
 app.post("/api/tts/engine/preload", wrap(async (req) => { await engines.preload(req.body || {}); return { ok: true }; }));
 app.get("/api/tts/engine/status", wrap(async () => engines.status()));
-// Suara klon (Pocket TTS): sampel WAV 3-30 detik milik pengguna
+// Suara klon (Pocket TTS, Chatterbox, XTTS): sampel WAV 3-30 detik milik pengguna
 app.get("/api/clone", wrap(async () => ({ clones: engines.cloneList() })));
-app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer, req.body && req.body.lang)));
+app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer, req.body && req.body.lang, req.body && req.body.engine)));
 app.delete("/api/clone/:id", wrap(async (req) => ({ ok: engines.cloneDel(req.params.id) })));
 app.get("/api/tts/piper/voices", wrap(async () => ({ voices: await engines.piperVoices() })));
 

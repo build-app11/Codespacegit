@@ -4,6 +4,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
+    "setup:vibevoice": "bash setup_vibevoice.sh",
     "phon:test": "node test-phon.js",
     "podcast:test": "node test-podcast.js",
     "news:test": "node test-news.js",

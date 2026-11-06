@@ -1,4 +1,4 @@
-// Mesin suara di server: Kokoro (kokoro-js, Node), Piper (CLI `piper`), Kitten (Python, kitten_worker.py).
+// Mesin suara di server: Kokoro (kokoro-js, Node), Piper (CLI `piper`), Kitten, Pocket, Chatterbox, XTTS v2, VibeVoice (Python, *_worker.py).
 // Model dimuat sekali lalu tetap di memori supaya permintaan berikutnya cepat. Satu antrean per mesin.
 const fs = require("fs");
 const os = require("os");
@@ -151,7 +151,17 @@ const kittenCached = () => Object.keys(KITTEN_MODELS).filter((k) => exists(path.
 // ---------- Pocket TTS (Python, Kyutai) ----------
 const POCKET_VOICES = ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma", "juergen", "lola", "giovanni", "rafael", "estelle"];
 const POCKET_LANGS = ["en", "de", "es", "it", "pt", "fr", "nl", "ja"];
-const pocketLangOf = (l) => { l = String(l || "en").toLowerCase().replace("_", "-").split("-")[0]; return POCKET_LANGS.includes(l) ? l : "en"; };
+const baseLang = (l) => String(l || "en").toLowerCase().replace("_", "-").split("-")[0];
+const pocketLangOf = (l) => { l = baseLang(l); return POCKET_LANGS.includes(l) ? l : "en"; };
+// Chatterbox (23 bahasa) dan XTTS v2 (17 bahasa). Indonesia belum didukung keduanya (Chatterbox punya Melayu "ms").
+const CB_LANGS = ["ar", "da", "de", "el", "en", "es", "fi", "fr", "he", "hi", "it", "ja", "ko", "ms", "nl", "no", "pl", "pt", "ru", "sv", "sw", "tr", "zh"];
+const XTTS_LANGS = ["en", "es", "fr", "de", "it", "pt", "pl", "tr", "ru", "nl", "cs", "ar", "zh", "hu", "ko", "ja", "hi"];
+const CLONE_LANGS = Array.from(new Set(POCKET_LANGS.concat(CB_LANGS, XTTS_LANGS)));
+const CLONE_ENGINES = { pocket: ["en", "de", "fr", "es", "it", "pt"], chatterbox: CB_LANGS, xtts: XTTS_LANGS };   // tiap klon milik satu mesin
+const cloneEngineOf = (e) => (CLONE_ENGINES[e] ? e : "pocket");   // klon lama (tanpa mesin) = Pocket
+const cloneLangOf = (l, e) => { l = baseLang(l); return CLONE_ENGINES[cloneEngineOf(e)].includes(l) ? l : "en"; };
+const strictLang = (set, name) => (l) => { l = baseLang(l); if (l === "multi" && name === "Chatterbox") return l; if (!set.includes(l)) throw new Error("Bahasa '" + l + "' belum didukung " + name); return l; };
+const cbLangOf = strictLang(CB_LANGS, "Chatterbox"), xttsLangOf = strictLang(XTTS_LANGS, "XTTS v2");
 let pw = null, pwPending = {}, pwId = 0, pwBuf = "", pwErr = "";
 function pocketProc() {
   if (pw) return pw;
@@ -181,19 +191,19 @@ const CLONE_ID = /^clone-[0-9a-f]{8}$/;
 function cloneList() {
   try {
     return fs.readdirSync(CLONES_DIR).filter((f) => f.endsWith(".json")).map((f) => {
-      try { const m = JSON.parse(fs.readFileSync(path.join(CLONES_DIR, f), "utf8")); return CLONE_ID.test(m.id) && exists(path.join(CLONES_DIR, m.id + ".wav")) ? { id: m.id, name: String(m.name).slice(0, 40), lang: pocketLangOf(m.lang) } : null; } catch (e) { return null; }
+      try { const m = JSON.parse(fs.readFileSync(path.join(CLONES_DIR, f), "utf8")); return CLONE_ID.test(m.id) && exists(path.join(CLONES_DIR, m.id + ".wav")) ? { id: m.id, name: String(m.name).slice(0, 40), lang: cloneLangOf(m.lang, m.engine), engine: cloneEngineOf(m.engine) } : null; } catch (e) { return null; }
     }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
   } catch (e) { return []; }
 }
-function cloneAdd(name, buf, lang) {
+function cloneAdd(name, buf, lang, engine) {
   if (!buf || buf.length < 2000 || buf.length > 8 * 1024 * 1024 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") throw new Error("Sampel harus berupa WAV (3-30 detik)");
   name = String(name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40) || "Suara saya";
   fs.mkdirSync(CLONES_DIR, { recursive: true });
   const id = "clone-" + require("crypto").randomBytes(4).toString("hex");
   fs.writeFileSync(path.join(CLONES_DIR, id + ".wav"), buf);
-  lang = pocketLangOf(lang);
-  fs.writeFileSync(path.join(CLONES_DIR, id + ".json"), JSON.stringify({ id, name, lang }));
-  return { id, name, lang };
+  engine = cloneEngineOf(engine); lang = cloneLangOf(lang, engine);
+  fs.writeFileSync(path.join(CLONES_DIR, id + ".json"), JSON.stringify({ id, name, lang, engine }));
+  return { id, name, lang, engine };
 }
 function cloneDel(id) {
   if (!CLONE_ID.test(String(id))) throw new Error("ID tidak valid");
@@ -204,23 +214,116 @@ async function pocketGen(voice, text, lang) {
   let ref;
   lang = pocketLangOf(lang);
   if (CLONE_ID.test(voice)) {
-    ref = path.join(CLONES_DIR, voice + ".wav");
-    if (!exists(ref)) throw new Error("Suara klon tidak ditemukan (mungkin sudah dihapus)");
+    ref = cloneRef(voice, "pocket");
   } else if (!POCKET_VOICES.includes(voice)) throw new Error("Suara Pocket TTS tidak dikenal");
   const m = await pocketCall({ voice, ref, text, lang });
   return Buffer.from(m.wav, "base64");
 }
 const pocketCached = () => exists(path.join(process.env.HF_HOME || path.join(MODELS_DIR, "hf"), "hub", "models--kyutai--pocket-tts", "snapshots"));
 
+// ---------- Pekerja Python generik (Chatterbox, XTTS v2) ----------
+function pyWorker(label, script, hint, extraEnv) {
+  let proc = null, pending = {}, nid = 0, buf = "", err = "";
+  const fail = (e) => { proc = null; const q = pending; pending = {}; for (const k in q) q[k].no(e); };
+  function start() {
+    if (proc) return proc;
+    const c = spawn(PYTHON, [path.join(__dirname, script)], { stdio: ["pipe", "pipe", "pipe"], env: Object.assign({}, process.env, { HF_HOME: process.env.HF_HOME || path.join(MODELS_DIR, "hf") }, extraEnv || {}) });
+    c.on("error", (e) => fail(e.code === "ENOENT" ? new Error("Python tidak ditemukan di server. Pasang Python 3.10+ dan '" + hint + "'.") : e));
+    c.on("close", () => { const t = err.trim().split("\n").slice(-3).join(" | "); err = ""; fail(new Error("Proses " + label + " berhenti." + (t ? " Detail: " + t : " Cek '" + hint + "' di server."))); });
+    c.stderr.on("data", (d) => { err = (err + d).slice(-2000); console.log("[" + label.toLowerCase() + "]", String(d).trim()); });
+    c.stdout.on("data", (d) => {
+      buf += d; let i;
+      while ((i = buf.indexOf("\n")) >= 0) {
+        const line = buf.slice(0, i); buf = buf.slice(i + 1);
+        try { const m = JSON.parse(line), q = pending[m.id]; if (!q) continue; delete pending[m.id]; m.error ? q.no(new Error(m.error)) : q.ok(m); } catch (e) {}
+      }
+    });
+    return (proc = c);
+  }
+  return (msg) => new Promise((ok, no) => {
+    const c = start(), id = ++nid; pending[id] = { ok, no };
+    c.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + "\n");
+  });
+}
+// Suara acuan: id klon -> berkas WAV; suara bawaan -> tanpa berkas (ref kosong)
+function cloneRef(voice, engine) {
+  if (!CLONE_ID.test(voice)) return undefined;
+  try { const m = JSON.parse(fs.readFileSync(path.join(CLONES_DIR, voice + ".json"), "utf8")); if (cloneEngineOf(m.engine) !== engine) throw new Error("Suara klon ini milik mesin " + cloneEngineOf(m.engine) + ", bukan " + engine); }
+  catch (e) { if (/milik mesin/.test(e.message)) throw e; }
+  const ref = path.join(CLONES_DIR, voice + ".wav");
+  if (!exists(ref)) throw new Error("Suara klon tidak ditemukan (mungkin sudah dihapus)");
+  return ref;
+}
+const HF_HUB = () => path.join(process.env.HF_HOME || path.join(MODELS_DIR, "hf"), "hub");
+
+// ---------- Chatterbox (Python, Resemble AI) ----------
+const cbCall = pyWorker("Chatterbox", "chatterbox_worker.py", "pip install chatterbox-tts");
+async function chatterboxGen(voice, text, lang) {
+  if (voice !== "default" && !CLONE_ID.test(voice)) throw new Error("Suara Chatterbox tidak dikenal");
+  const m = await cbCall({ voice, ref: cloneRef(voice, "chatterbox"), text, lang: cbLangOf(lang) });
+  return Buffer.from(m.wav, "base64");
+}
+function chatterboxCached() {   // model Inggris dan multibahasa memakai repo yang sama dengan berkas berbeda
+  const out = { en: false, multi: false }, snaps = path.join(HF_HUB(), "models--ResembleAI--chatterbox", "snapshots");
+  try {
+    for (const s of fs.readdirSync(snaps)) {
+      const f = fs.readdirSync(path.join(snaps, s));
+      if (f.some((x) => /^t3_cfg/.test(x))) out.en = true;
+      if (f.some((x) => /^t3_mtl/.test(x))) out.multi = true;
+    }
+  } catch (e) {}
+  return out;
+}
+
+// ---------- XTTS v2 (Python, Coqui) ----------
+const COQUI_DIR = process.env.TTS_HOME || path.join(MODELS_DIR, "coqui");
+const xttsCall = pyWorker("XTTS", "xtts_worker.py", "pip install coqui-tts", { TTS_HOME: COQUI_DIR });
+async function xttsGen(voice, text, lang) {
+  const m = await xttsCall({ voice, ref: cloneRef(voice, "xtts"), text, lang: xttsLangOf(lang) });
+  return Buffer.from(m.wav, "base64");
+}
+const xttsCached = () => ["tts", ""].some((d) => exists(path.join(COQUI_DIR, d, "tts_models--multilingual--multi-dataset--xtts_v2", "model.pth")));
+
+// ---------- VibeVoice-Realtime-0.5B (Python, Microsoft) ----------
+// Suara = berkas preset .pt (bukan bagian dari model HF). Folder dicari sama persis seperti di vibevoice_worker.py.
+const vibeCall = pyWorker("VibeVoice", "vibevoice_worker.py", "git clone https://github.com/microsoft/VibeVoice && pip install -e .[streamingtts]", { MODELS_DIR });
+const VIBE_PREFIX = { en: "en", in: "en", de: "de", fr: "fr", it: "it", jp: "ja", kr: "ko", nl: "nl", pl: "pl", pt: "pt", sp: "es" };
+function vibeDirs() {
+  const d = [];
+  if (process.env.VIBEVOICE_VOICES) d.push(process.env.VIBEVOICE_VOICES);
+  if (process.env.VIBEVOICE_REPO) d.push(path.join(process.env.VIBEVOICE_REPO, "demo", "voices", "streaming_model"));
+  d.push(path.join(MODELS_DIR, "vibevoice", "voices"));
+  return d;
+}
+function vibeVoices() {
+  const seen = new Set(), out = [];
+  for (const dir of vibeDirs()) {
+    let files = []; try { files = fs.readdirSync(dir); } catch (e) {}
+    for (const f of files) {
+      if (!f.endsWith(".pt")) continue;
+      const id = f.slice(0, -3);
+      if (seen.has(id) || !/^[\w.-]{1,60}$/.test(id)) continue;
+      seen.add(id);
+      out.push({ id, lang: VIBE_PREFIX[id.split(/[-_]/)[0].toLowerCase()] || "en" });
+    }
+  }
+  return out.sort((a, b) => a.id.localeCompare(b.id));
+}
+async function vibevoiceGen(voice, text) {
+  const m = await vibeCall({ voice, text });
+  return Buffer.from(m.wav, "base64");
+}
+const vibevoiceCached = () => exists(path.join(HF_HUB(), "models--microsoft--VibeVoice-Realtime-0.5B", "snapshots"));
+
 // ---------- API ----------
-const ENGINES = ["kokoro", "kitten", "piper", "pocket"];
+const ENGINES = ["kokoro", "kitten", "piper", "pocket", "chatterbox", "xtts", "vibevoice"];
 const VOICE_OK = /^[\w.-]{1,60}$/;
 function synth({ engine, voice, text, model, lang }) {
   if (!ENGINES.includes(engine)) return Promise.reject(new Error("Mesin tidak dikenal"));
   if (!VOICE_OK.test(String(voice || ""))) return Promise.reject(new Error("Suara tidak valid"));
   text = String(text || "").slice(0, 2000);
   if (!text.trim()) return Promise.reject(new Error("Teks kosong"));
-  return enqueue(engine, () => engine === "kokoro" ? kokoroGen(voice, text) : engine === "kitten" ? kittenGen(voice, text, model) : engine === "pocket" ? pocketGen(voice, text, lang) : piperGen(voice, text));
+  return enqueue(engine, () => engine === "kokoro" ? kokoroGen(voice, text) : engine === "kitten" ? kittenGen(voice, text, model) : engine === "pocket" ? pocketGen(voice, text, lang) : engine === "chatterbox" ? chatterboxGen(voice, text, lang) : engine === "xtts" ? xttsGen(voice, text, lang) : engine === "vibevoice" ? vibevoiceGen(voice, text) : piperGen(voice, text));
 }
 function preload({ engine, voice, model, lang }) {
   if (!ENGINES.includes(engine)) return Promise.reject(new Error("Mesin tidak dikenal"));
@@ -228,6 +331,9 @@ function preload({ engine, voice, model, lang }) {
     if (engine === "kokoro") await kokoroLoad();
     else if (engine === "kitten") await kittenCall({ model: kittenModel(model), preload: true });
     else if (engine === "pocket") await pocketCall({ preload: true, voice: "alba", lang: pocketLangOf(lang) });
+    else if (engine === "chatterbox") await cbCall({ preload: true, lang: cbLangOf(lang || "en") });
+    else if (engine === "xtts") await xttsCall({ preload: true });
+    else if (engine === "vibevoice") await vibeCall({ preload: true });
     else await piperEnsure(String(voice || ""));
     return true;
   });
@@ -238,11 +344,12 @@ function probe(cmd, args) {
 let probeCache = null;
 async function status() {
   if (!probeCache || Date.now() - probeCache.t > 5 * 60 * 1000) {   // probe Python/piper itu lambat, simpan 5 menit
-    const [a, b, p] = await Promise.all([probe(PIPER_BIN, ["--help"]), probe(PYTHON, ["-c", "import kittenml"]).then((ok) => ok || probe(PYTHON, ["-c", "import kittentts"])), probe(PYTHON, ["-c", "import pocket_tts"])]);
-    probeCache = { t: Date.now(), piperBin: a, kittenPy: b, pocketPy: p };
+    const spec = (mod) => probe(PYTHON, ["-c", "import importlib.util as u,sys;sys.exit(0 if u.find_spec('" + mod + "') else 1)"]);   // tanpa mengimpor torch, jadi cepat
+    const [a, b, p, cb, xt, vv] = await Promise.all([probe(PIPER_BIN, ["--help"]), probe(PYTHON, ["-c", "import kittenml"]).then((ok) => ok || probe(PYTHON, ["-c", "import kittentts"])), probe(PYTHON, ["-c", "import pocket_tts"]), spec("chatterbox"), spec("TTS"), spec("vibevoice")]);
+    probeCache = { t: Date.now(), piperBin: a, kittenPy: b, pocketPy: p, cbPy: cb, xttsPy: xt, vibePy: vv };
   }
   const piperBin = probeCache.piperBin, kittenPy = probeCache.kittenPy;
   let kokoroPkg = false; try { require.resolve("kokoro-js"); kokoroPkg = true; } catch (e) {}
-  return { kokoro: { installed: kokoroPkg, cached: kokoroCached() }, kitten: { installed: kittenPy, models: Object.keys(KITTEN_MODELS), cached: kittenCached() }, piper: { installed: piperBin, stored: piperStored() }, pocket: { installed: probeCache.pocketPy, cached: pocketCached() } };
+  return { kokoro: { installed: kokoroPkg, cached: kokoroCached() }, kitten: { installed: kittenPy, models: Object.keys(KITTEN_MODELS), cached: kittenCached() }, piper: { installed: piperBin, stored: piperStored() }, pocket: { installed: probeCache.pocketPy, cached: pocketCached() }, chatterbox: { installed: probeCache.cbPy, cached: chatterboxCached(), langs: CB_LANGS }, xtts: { installed: probeCache.xttsPy, cached: xttsCached(), langs: XTTS_LANGS, license: process.env.COQUI_TOS_AGREED === "1" }, vibevoice: { installed: probeCache.vibePy, cached: vibevoiceCached(), voices: vibeVoices() } };
 }
 module.exports = { synth, preload, status, piperVoices, piperStored, KITTEN_MODELS, cloneList, cloneAdd, cloneDel };
