@@ -34,6 +34,7 @@ input[type=text],textarea{width:100%;font:inherit;color:inherit;background:var(-
 .rbody{flex:1;overflow-y:auto;padding:20px 18px;font-size:19px;line-height:1.75;max-width:680px;width:100%;margin:0 auto}
 .s{cursor:pointer;border-radius:4px;transition:background .2s}.s.on{background:var(--hl)}
 .s.pend{opacity:.55;font-style:italic}
+.pbrk{display:block;height:.9em}.s.hd{display:block;font-weight:700}.s.hd+.pbrk{height:.35em}
 mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;padding:0 2px}
 .rfoot{background:var(--surface);border-top:1px solid var(--line);padding:12px 14px calc(12px + env(safe-area-inset-bottom,0px))}
 .fin{max-width:680px;margin:0 auto}
@@ -199,8 +200,14 @@ function run(mode,fn){return new Promise(function(res,rej){var t=db.transaction(
 function putItem(it){return run("readwrite",function(s){return s.put(it)}).catch(function(){toast("Gagal menyimpan, ruang penyimpanan penuh?")})}
 function delItem(id){return run("readwrite",function(s){return s.delete(id)})}
 function saveProg(){try{localStorage.setItem(PK,JSON.stringify(prog))}catch(e){}}
-function split(t){var out=[],m=t.replace(/\s+/g," ").match(/[^.!?。]+[.!?。]*\s*/g)||[];
-  m.forEach(function(s){s=s.trim();while(s.length>260){var k=s.lastIndexOf(" ",260);if(k<100)k=260;out.push(s.slice(0,k).trim());s=s.slice(k).trim()}if(s)out.push(s)});return out}
+var pmark=[];   // pmark[i]: 1 = kalimat i membuka paragraf baru, 2 = paragraf itu judul/bab
+function splitP(t){   // satu "\n" di teks = batas paragraf; teks tanpa "\n" hasilnya sama seperti dulu
+  var out=[],mark=[],paras=String(t).split(/\n+/).map(function(p){return p.replace(/\s+/g," ").trim()}).filter(Boolean),multi=paras.length>1;
+  paras.forEach(function(p){var first=out.length,m=p.match(/[^.!?。]+[.!?。]*\s*/g)||[];
+    m.forEach(function(s){s=s.trim();while(s.length>260){var k=s.lastIndexOf(" ",260);if(k<100)k=260;out.push(s.slice(0,k).trim());s=s.slice(k).trim()}if(s)out.push(s)});
+    if(out.length>first)mark[first]=(multi&&out.length-first===1&&p.length<=90&&!/[.!?。…:;,"”')\]»]$/.test(p))?2:1});
+  return {s:out,p:mark}}
+function split(t){return splitP(t).s}
 function wc(s){return s.split(" ").length}
 function status(it){var g=prog[it.id]||{};return g.done?"done":(g.pos>0?"go":"new")}
 function pct(it){var g=prog[it.id]||{};return g.done?100:Math.round((g.pos||0)/(it.n||1)*100)}
@@ -282,7 +289,7 @@ function updTime(v){var wpm=160*parseFloat($("rate").value);v=(v==null)?pos:v;
   $("tcur").textContent=fmt(cum[v]/wpm*60);$("ttot").textContent=fmt(cum[sents.length]/wpm*60)}
 function chunkOf(i){for(var c=0;c<chunks.length;c++)if(i>=chunks[c].s&&i<chunks[c].e)return c;return 0}
 function build(){
-  sents=split(cur.text);cum=[0];chunks=[];var st=0,w=0;
+  var spp=splitP(cur.text);sents=spp.s;pmark=spp.p;cum=[0];chunks=[];var st=0,w=0;
   sents.forEach(function(s,i){var n=wc(s);cum.push(cum[i]+n);w+=n;if(w>=CH||i===sents.length-1){chunks.push({s:st,e:i+1});st=i+1;w=0}});
   ci=-1;$("seek").max=Math.max(sents.length-1,0)}
 function mlUI(){
@@ -390,7 +397,8 @@ function waitMain(k,cb){
 function setPos(i){
   stopHL();pos=Math.max(0,Math.min(i,sents.length-1));var c=chunkOf(pos),body=$("rbody");
   if(c!==ci){ci=c;body.innerHTML="";var fr=document.createDocumentFragment();
-    for(var k=chunks[c].s;k<chunks[c].e;k++){var sp=document.createElement("span");sp.className="s"+(mReady(k)?"":" pend");sp.dataset.i=k;sp.textContent=dsent(k)+" ";fr.appendChild(sp)}
+    for(var k=chunks[c].s;k<chunks[c].e;k++){if(pmark[k]&&k>chunks[c].s){var gp=document.createElement("span");gp.className="pbrk";fr.appendChild(gp)}
+      var sp=document.createElement("span");sp.className="s"+(pmark[k]===2?" hd":"")+(mReady(k)?"":" pend");sp.dataset.i=k;sp.textContent=dsent(k)+" ";fr.appendChild(sp)}
     body.appendChild(fr);$("part").textContent="Bagian "+(c+1)+"/"+chunks.length;phRefresh();translateChunk()}
   var pv=body.querySelector(".on");if(pv)pv.classList.remove("on");
   var el=body.querySelector('[data-i="'+pos+'"]');if(el){el.classList.add("on");el.scrollIntoView({block:"center",behavior:"smooth"})}
@@ -1149,6 +1157,15 @@ $("scandlg").addEventListener("close",camStop);
 $("camdone").onclick=function(){
   var fs=pages.slice(),lang=$("ocrl").value;try{localStorage.setItem(KEY+"-ocr",lang)}catch(e){}
   pages=[];$("scandlg").close();runOcr(fs,lang)};
+function ocrPara(t,cjk){   // teks OCR satu halaman -> daftar paragraf (baris kosong = batas paragraf)
+  return String(t).replace(/\r/g,"").split(/\n[ \t]*\n/).map(function(b){var o="";
+    b.split("\n").map(function(l){return l.trim()}).filter(Boolean).forEach(function(l){
+      if(!o)o=l;else if(/[-‐]$/.test(o)&&/^[a-zà-ÿ]/.test(l))o=o.slice(0,-1)+l;else o+=(cjk?"":" ")+l});
+    return o.replace(/[ \t]+/g," ").replace(/\s+([,.;:!?])(?=\s|$)/g,"$1").replace(/\s+([,;!?])(?=[A-Za-zÀ-ÿ])/g,"$1 ").replace(/([a-zà-ÿ]{2}[.!?])(?=[A-ZÀ-Þ][a-zà-ÿ])/g,"$1 ").trim()}).filter(Boolean)}
+function ocrJoin(pages,cjk){var paras=[];   // gabung halaman; kalimat yang terpotong di pergantian halaman disambung
+  pages.forEach(function(pg){ocrPara(pg,cjk).forEach(function(p,i){var prev=paras[paras.length-1];
+    if(i===0&&prev&&!/[.!?。！？…]["'”’)\]»]*$/.test(prev)&&/^[a-zà-ÿ]/.test(p))paras[paras.length-1]=prev+(cjk?"":" ")+p;else paras.push(p)})});
+  return paras.join("\n")}
 function runOcr(fs,lang){
   if(!window.Tesseract){toast("Modul OCR gagal dimuat. Cek koneksi internet.");return}
   var out=[],i=0,worker=null,cjk=/^(jpn|chi_sim|chi_tra)/.test(lang);
@@ -1158,7 +1175,7 @@ function runOcr(fs,lang){
     .then(function(w){worker=w;return (function next(){
       if(i>=fs.length)return Promise.resolve();
       return w.recognize(fs[i]).then(function(r){out.push(r.data.text);i++;return next()})})()})
-    .then(function(){fin();var t=out.join(" ");if(cjk)t=t.replace(/(?<=[\u3040-\u30ff\u3400-\u9fff])[ \t]+(?=[\u3040-\u30ff\u3400-\u9fff])/g,"");
+    .then(function(){fin();var t=ocrJoin(out,cjk);if(cjk)t=t.replace(/(?<=[\u3040-\u30ff\u3400-\u9fff])[ \t]+(?=[\u3040-\u30ff\u3400-\u9fff])/g,"");
       add("Foto dokumen "+new Date().toLocaleDateString("id-ID"),t)})
     .catch(function(e){fin();toast("Gagal: "+e.message)});
 }
