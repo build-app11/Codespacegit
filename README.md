@@ -74,10 +74,14 @@ Yang perlu dipasang di server:
 | Kokoro | `npm install` (paket `kokoro-js`) | 28 suara Inggris. Model q8 (~90 MB) diunduh otomatis ke `models/` saat pertama dipakai. |
 | Piper | `pip install piper-tts` (atau taruh binary `piper` di PATH; atur lewat `PIPER_BIN`) | Suara (.onnx) diunduh otomatis dari Hugging Face ke `models/piper/`. |
 | Kitten | `pip install kittenml` (Python 3.9+; atur lewat `PYTHON`). Alternatif: wheel `kittentts` 0.8.1 dari rilis GitHub KittenML | Dijalankan lewat `kitten_worker.py`. Model "nano-int8" sering gagal (diakui pengembangnya), jadi bawaannya "nano". Nama model ada di `KITTEN_MODELS` dalam `engines.js`. |
+| Pocket TTS | `pip install pocket-tts` (Python 3.10+, PyTorch 2.5+ versi CPU cukup) | Mesin Kyutai ±100M parameter, jalan di CPU. 8 suara bawaan Inggris (alba, marius, javert, jean, fantine, cosette, eponine, azelma). Model dari Hugging Face `kyutai/pocket-tts` dan bisa meminta login/persetujuan lisensi: kalau unduhan gagal, buat token di huggingface.co lalu jalankan `HF_TOKEN=... npm start`. Dijalankan lewat `pocket_worker.py`. |
+
+**Suara klon (Pocket TTS):** di dialog "Unduh model suara" ada bagian "Suara saya". Pilih sampel 10-30 detik (browser mengubahnya jadi WAV mono 24 kHz), beri nama, lalu "Tambah". Sampel disimpan di `models/clones/` dan suaranya muncul sebagai "Clone · nama" di daftar suara. Hanya untuk suara milik sendiri atau yang sudah memberi izin. Hasil terbaik untuk teks bahasa Inggris.
 
 **Penyimpanan model:** model disimpan di folder `models/` pada disk server, jadi tetap ada setelah aplikasi ditutup atau server di-restart (jangan commit folder ini ke git). Saat `npm start`, Kokoro yang sudah ada di disk langsung dimuat ke memori. Di daftar suara, suara yang modelnya sudah terpasang diurutkan di atas.
 
 **Mode hibrida:** di baris pengaturan ada kotak centang "Kitten di perangkat" dan "Piper di perangkat" (WASM, jalan di semua browser modern, model diunduh ke cache browser saat pertama dipakai). Bawaan: mati. Kalau gagal, otomatis kembali ke server. Selain itu, di browser yang mendukung WebGPU muncul kotak centang "Kokoro di perangkat (WebGPU, ±330 MB)". Kalau dicentang, Kokoro berjalan di perangkat pengguna (model fp32 diunduh sekali ke cache browser) dan server tidak terbebani. Kalau WebGPU gagal atau tidak tersedia, otomatis kembali ke server. Bawaan: mati, supaya pengguna data seluler tidak mengunduh 330 MB tanpa sadar.
+
 
 Cek status di `/api/tts/engine/status` atau di log saat `npm start`. Tombol **Unduh model** sekarang mengunduh ke server. Bila satu mesin belum terpasang, mesin lain tetap jalan. Folder `models/` bisa dipindah dengan `MODELS_DIR`. Di CPU server, Kokoro biasanya paling lambat dan Kitten Nano paling cepat; kalau server kecil, mulai dari Kitten atau Piper.
 
