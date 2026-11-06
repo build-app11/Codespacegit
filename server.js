@@ -12,6 +12,7 @@ const podcast = require("./podcast");
 const news = require("./news");
 const article = require("./article");
 const engines = require("./engines");
+const tf = require("./textfmt");
 const fs = require("fs");
 const os = require("os");
 const path = require("path");
@@ -48,7 +49,7 @@ function fromHtml(html, url) {
   const art = new Readability(dom.window.document).parse();
   if (!art || !art.textContent.trim()) throw new Error("Isi artikel tidak ditemukan");
   let text = "";
-  try { text = clean(article.extractText(new JSDOM("<!doctype html><body>" + art.content, { virtualConsole: quietDom() }).window.document)); } catch (e) {}
+  try { text = tf.fromParagraphs(article.extractText(new JSDOM("<!doctype html><body>" + art.content, { virtualConsole: quietDom() }).window.document)); } catch (e) {}
   const raw = clean(art.textContent);
   // Pengaman: kalau pembersihan membuang terlalu banyak, anggap berlebihan dan pakai hasil Readability apa adanya.
   return { title: art.title, text: text && (raw.length < 600 || text.length >= raw.length * 0.35) ? text : raw };
@@ -268,10 +269,14 @@ function fromEpub(buf) {
     const href = manifest[m[1]];
     if (!href) continue;
     const html = read(dir + decodeURIComponent(href.split("#")[0]));
-    if (html) parts.push(new JSDOM(html.replace(/<style\b[\s\S]*?<\/style>/gi, ""), { virtualConsole: quietDom() }).window.document.body.textContent);
+    if (html) parts.push(...tf.domBlocks(new JSDOM(html.replace(/<style\b[\s\S]*?<\/style>/gi, ""), { virtualConsole: quietDom() }).window.document.body));
   }
-  const title = ((opf.match(/<dc:title[^>]*>([^<]+)/) || [])[1] || "").trim();
-  return { title, text: clean(parts.join(" ")) };
+  const dec = (x) => String(x || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").trim();
+  const title = dec((opf.match(/<dc:title[^>]*>([^<]+)/) || [])[1]);
+  const author = dec((opf.match(/<dc:creator[^>]*>([^<]+)/) || [])[1]);
+  // halaman sampul sering hanya gambar: tulis judul dan penulis di awal supaya bagian depan buku tetap terbaca
+  const head = [title, author].filter((x) => x && !parts.slice(0, 5).some((p) => p.toLowerCase() === x.toLowerCase()));
+  return { title, text: head.concat(parts).join("\n") };
 }
 
 // File: PDF, DOCX, HTML, TXT, MD
@@ -281,13 +286,13 @@ app.post("/api/file", upload.single("file"), wrap(async (req) => {
   const name = f.originalname.replace(/\.\w+$/, "");
   const ext = (f.originalname.split(".").pop() || "").toLowerCase();
   let text = "";
-  if (ext === "pdf") text = (await pdfParse(f.buffer)).text;
-  else if (ext === "docx") text = (await mammoth.extractRawText({ buffer: f.buffer })).value;
+  if (ext === "pdf") text = tf.mergePdfPages((await pdfParse(f.buffer, { pagerender: tf.pdfPageText })).text);
+  else if (ext === "docx") text = tf.fromParagraphs((await mammoth.extractRawText({ buffer: f.buffer })).value);
   else if (ext === "epub") { const r = fromEpub(f.buffer); text = r.text; if (r.title) return { title: r.title, text }; }
   else if (ext === "html" || ext === "htm") text = fromHtml(f.buffer.toString("utf8")).text;
-  else if (ext === "txt" || ext === "md") text = f.buffer.toString("utf8");
+  else if (ext === "txt" || ext === "md") text = tf.textToParas(f.buffer.toString("utf8"));
   else throw new Error("Format ." + ext + " belum didukung");
-  text = clean(text);
+  text = text.trim();   // paragraf dipertahankan: satu "\n" per paragraf
   if (!text) throw new Error("Tidak ada teks di file ini (mungkin PDF hasil scan, coba fitur Scan)");
   return { title: name, text };
 }));
