@@ -248,7 +248,7 @@ app.post("/api/tts/engine/preload", wrap(async (req) => { await engines.preload(
 app.get("/api/tts/engine/status", wrap(async () => engines.status()));
 // Suara klon (Pocket TTS): sampel WAV 3-30 detik milik pengguna
 app.get("/api/clone", wrap(async () => ({ clones: engines.cloneList() })));
-app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer)));
+app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer, req.body && req.body.lang)));
 app.delete("/api/clone/:id", wrap(async (req) => ({ ok: engines.cloneDel(req.params.id) })));
 app.get("/api/tts/piper/voices", wrap(async () => ({ voices: await engines.piperVoices() })));
 

@@ -149,7 +149,9 @@ async function kittenGen(voice, text, model) {
 const kittenCached = () => Object.keys(KITTEN_MODELS).filter((k) => exists(path.join(process.env.HF_HOME || path.join(MODELS_DIR, "hf"), "hub", "models--" + KITTEN_MODELS[k].replace("/", "--"), "snapshots")));
 
 // ---------- Pocket TTS (Python, Kyutai) ----------
-const POCKET_VOICES = ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma"];
+const POCKET_VOICES = ["alba", "marius", "javert", "jean", "fantine", "cosette", "eponine", "azelma", "juergen", "lola", "giovanni", "rafael", "estelle"];
+const POCKET_LANGS = ["en", "de", "es", "it", "pt", "fr", "nl", "ja"];
+const pocketLangOf = (l) => { l = String(l || "en").toLowerCase().replace("_", "-").split("-")[0]; return POCKET_LANGS.includes(l) ? l : "en"; };
 let pw = null, pwPending = {}, pwId = 0, pwBuf = "", pwErr = "";
 function pocketProc() {
   if (pw) return pw;
@@ -179,31 +181,33 @@ const CLONE_ID = /^clone-[0-9a-f]{8}$/;
 function cloneList() {
   try {
     return fs.readdirSync(CLONES_DIR).filter((f) => f.endsWith(".json")).map((f) => {
-      try { const m = JSON.parse(fs.readFileSync(path.join(CLONES_DIR, f), "utf8")); return CLONE_ID.test(m.id) && exists(path.join(CLONES_DIR, m.id + ".wav")) ? { id: m.id, name: String(m.name).slice(0, 40) } : null; } catch (e) { return null; }
+      try { const m = JSON.parse(fs.readFileSync(path.join(CLONES_DIR, f), "utf8")); return CLONE_ID.test(m.id) && exists(path.join(CLONES_DIR, m.id + ".wav")) ? { id: m.id, name: String(m.name).slice(0, 40), lang: pocketLangOf(m.lang) } : null; } catch (e) { return null; }
     }).filter(Boolean).sort((a, b) => a.name.localeCompare(b.name));
   } catch (e) { return []; }
 }
-function cloneAdd(name, buf) {
+function cloneAdd(name, buf, lang) {
   if (!buf || buf.length < 2000 || buf.length > 8 * 1024 * 1024 || buf.toString("ascii", 0, 4) !== "RIFF" || buf.toString("ascii", 8, 12) !== "WAVE") throw new Error("Sampel harus berupa WAV (3-30 detik)");
   name = String(name || "").replace(/[\u0000-\u001f<>]/g, "").trim().slice(0, 40) || "Suara saya";
   fs.mkdirSync(CLONES_DIR, { recursive: true });
   const id = "clone-" + require("crypto").randomBytes(4).toString("hex");
   fs.writeFileSync(path.join(CLONES_DIR, id + ".wav"), buf);
-  fs.writeFileSync(path.join(CLONES_DIR, id + ".json"), JSON.stringify({ id, name }));
-  return { id, name };
+  lang = pocketLangOf(lang);
+  fs.writeFileSync(path.join(CLONES_DIR, id + ".json"), JSON.stringify({ id, name, lang }));
+  return { id, name, lang };
 }
 function cloneDel(id) {
   if (!CLONE_ID.test(String(id))) throw new Error("ID tidak valid");
   for (const e of [".wav", ".json"]) { try { fs.unlinkSync(path.join(CLONES_DIR, id + e)); } catch (x) {} }
   return true;
 }
-async function pocketGen(voice, text) {
+async function pocketGen(voice, text, lang) {
   let ref;
+  lang = pocketLangOf(lang);
   if (CLONE_ID.test(voice)) {
     ref = path.join(CLONES_DIR, voice + ".wav");
     if (!exists(ref)) throw new Error("Suara klon tidak ditemukan (mungkin sudah dihapus)");
   } else if (!POCKET_VOICES.includes(voice)) throw new Error("Suara Pocket TTS tidak dikenal");
-  const m = await pocketCall({ voice, ref, text });
+  const m = await pocketCall({ voice, ref, text, lang });
   return Buffer.from(m.wav, "base64");
 }
 const pocketCached = () => exists(path.join(process.env.HF_HOME || path.join(MODELS_DIR, "hf"), "hub", "models--kyutai--pocket-tts", "snapshots"));
@@ -211,19 +215,19 @@ const pocketCached = () => exists(path.join(process.env.HF_HOME || path.join(MOD
 // ---------- API ----------
 const ENGINES = ["kokoro", "kitten", "piper", "pocket"];
 const VOICE_OK = /^[\w.-]{1,60}$/;
-function synth({ engine, voice, text, model }) {
+function synth({ engine, voice, text, model, lang }) {
   if (!ENGINES.includes(engine)) return Promise.reject(new Error("Mesin tidak dikenal"));
   if (!VOICE_OK.test(String(voice || ""))) return Promise.reject(new Error("Suara tidak valid"));
   text = String(text || "").slice(0, 2000);
   if (!text.trim()) return Promise.reject(new Error("Teks kosong"));
-  return enqueue(engine, () => engine === "kokoro" ? kokoroGen(voice, text) : engine === "kitten" ? kittenGen(voice, text, model) : engine === "pocket" ? pocketGen(voice, text) : piperGen(voice, text));
+  return enqueue(engine, () => engine === "kokoro" ? kokoroGen(voice, text) : engine === "kitten" ? kittenGen(voice, text, model) : engine === "pocket" ? pocketGen(voice, text, lang) : piperGen(voice, text));
 }
-function preload({ engine, voice, model }) {
+function preload({ engine, voice, model, lang }) {
   if (!ENGINES.includes(engine)) return Promise.reject(new Error("Mesin tidak dikenal"));
   return enqueue(engine, async () => {
     if (engine === "kokoro") await kokoroLoad();
     else if (engine === "kitten") await kittenCall({ model: kittenModel(model), preload: true });
-    else if (engine === "pocket") await pocketCall({ preload: true, voice: "alba" });
+    else if (engine === "pocket") await pocketCall({ preload: true, voice: "alba", lang: pocketLangOf(lang) });
     else await piperEnsure(String(voice || ""));
     return true;
   });
