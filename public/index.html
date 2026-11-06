@@ -135,16 +135,13 @@ mark.w{background:var(--accent);color:var(--accent-ink);border-radius:4px;paddin
   </div>
   <div class="row pfoot"><button class="btn" id="podclose">Tutup</button><span style="flex:1"></span><button class="btn" id="ptxt" disabled>⬇ TXT</button><button class="btn" id="psrt" disabled>⬇ SRT</button><button class="btn" id="psave" disabled title="Simpan ke Library">Simpan</button></div></dialog>
 <dialog id="mdlg"><h2 style="margin:0 0 6px;font-size:20px">Unduh model suara</h2>
-  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Kokoro, Kitten, Piper, dan Pocket diunduh dan disimpan <b>di server</b> (bukan di perangkat ini). Whisper diunduh ke browser ini. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
+  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Kokoro, Kitten, Piper, Pocket, Chatterbox, XTTS, dan VibeVoice diunduh dan disimpan <b>di server</b> (bukan di perangkat ini). Whisper diunduh ke browser ini. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
   <div class="mdrow"><b>Kokoro <span class="sub">Inggris · ±90 MB</span></b><span class="sub" id="mds-kokoro"></span><button class="btn" id="mdd-kokoro">Unduh</button></div>
   <div class="mdrow"><b>Pocket <select id="mdpl" aria-label="Bahasa Pocket"><option value="en">English</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="nl">Nederlands</option><option value="ja">日本語 (non-komersial)</option></select></b><span class="sub" id="mds-pocket"></span><button class="btn" id="mdd-pocket">Unduh</button></div>
-  <div class="mdrow" style="flex-wrap:wrap;gap:6px"><b>Suara saya <span class="sub">klon · Pocket</span></b>
-    <select id="clnl" aria-label="Bahasa sampel suara"><option value="en">English</option><option value="de">Deutsch</option><option value="fr">Français</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option></select>
-    <input id="cln" type="text" maxlength="30" placeholder="Nama suara" aria-label="Nama suara klon" style="flex:1;min-width:90px">
-    <input id="clf" type="file" accept="audio/*" aria-label="Sampel suara (3-30 detik)" style="max-width:100%">
-    <button class="btn" id="cla">Tambah</button></div>
-  <p class="sub" style="margin:0 0 6px">Sampel 10-30 detik yang jernih, satu pembicara, tanpa musik. Hanya tiru suara milik sendiri atau yang sudah memberi izin. Pilih bahasa sesuai bahasa yang diucapkan di sampel: klon dibaca dengan model Pocket bahasa itu (unduh modelnya dulu di atas).</p>
-  <div id="cll" class="sub"></div>
+  <div class="mdrow"><b>Chatterbox <select id="mdcl" aria-label="Model Chatterbox"><option value="en">English (±3 GB)</option><option value="multi">Multibahasa 23 bahasa (±3 GB)</option></select></b><span class="sub" id="mds-chatterbox"></span><button class="btn" id="mdd-chatterbox">Unduh</button></div>
+  <div class="mdrow"><b>XTTS v2 <span class="sub">17 bahasa · ±1,9 GB · non-komersial</span></b><span class="sub" id="mds-xtts"></span><button class="btn" id="mdd-xtts">Unduh</button></div>
+  <div class="mdrow"><b>VibeVoice <span class="sub">Inggris (9 bahasa eksperimental) · ±1 GB · suara dari berkas .pt</span></b><span class="sub" id="mds-vibevoice"></span><button class="btn" id="mdd-vibevoice">Unduh</button></div>
+  <div id="clforms"></div>
   <div class="mdrow"><b>Kitten <span class="sub" id="mdkn"></span></b><span class="sub" id="mds-kitten"></span><button class="btn" id="mdd-kitten">Unduh</button></div>
   <div class="mdrow"><b>Piper</b><select id="mdpv" aria-label="Suara Piper"></select><span class="sub" id="mds-piper"></span><button class="btn" id="mdd-piper">Unduh</button></div>
   <div class="mdrow"><b>Piper <span class="sub">banyak sekaligus</span></b><select id="mdpscope" aria-label="Cakupan unduhan Piper"><option value="lang">Bahasa teks ini saja</option><option value="all">Semua suara Piper</option></select><button class="btn" id="mdd-pall">Unduh semua</button></div>
@@ -246,8 +243,15 @@ function remote(url,fallback,opts,extra){
 function vlang(c){c=(c||"").replace("_","-");var l=c.toLowerCase();if(/^zh-(hans|cn|sg)/.test(l))return "zh-CN";if(/^zh-(hant|tw|hk)/.test(l))return "zh-TW";return c}
 function pl(c){var p=(c||"").replace("_","-").toLowerCase().split("-")[0];return p==="in"?"id":p}
 var POCKET_LANGS=["en","fr","de","pt","it","es","nl","ja"];
-function vMatch(v,c){if(v.engine==="pocket"&&!v.plang&&POCKET_LANGS.indexOf(pl(vlang(c)))>=0)return true;return pl(v.lang)===pl(vlang(c))}
+var CB_LANGS=["ar","da","de","el","en","es","fi","fr","he","hi","it","ja","ko","ms","nl","no","pl","pt","ru","sv","sw","tr","zh"],
+  XTTS_LANGS=["en","es","fr","de","it","pt","pl","tr","ru","nl","cs","ar","zh","hu","ko","ja","hi"],
+  CLONE_POCKET=["en","de","fr","es","it","pt"],
+  ENG_LANGS={pocket:POCKET_LANGS,chatterbox:CB_LANGS,xtts:XTTS_LANGS};
+function vMatch(v,c){var L=ENG_LANGS[v.engine];if(L&&!v.plang&&L.indexOf(pl(vlang(c)))>=0)return true;return pl(v.lang)===pl(vlang(c))}
 function pocketLang(v){if(v&&v.plang)return v.plang;var m=$("ml"),c=(m&&m.value)||(cur&&cur.lang)||"en",l=pl(vlang(c));return POCKET_LANGS.indexOf(l)>=0?l:"en"}
+function engLang(v){ // bahasa untuk mesin multibahasa; Pocket jatuh ke "en", Chatterbox/XTTS biar server menolak bila tak didukung
+  if(v.engine==="pocket")return pocketLang(v);if(v&&v.plang)return v.plang;
+  var m=$("ml"),c=(m&&m.value)||(cur&&cur.lang)||"en";return pl(vlang(c))}
 function mainLang(){if(!cur)return "";var l=cur.main||cur.lang;return l&&l!=="und"?l:""}
 function sameLang(a,b){if(!a||!b)return false;var x=vlang(a).toLowerCase(),y=vlang(b).toLowerCase(),p=pl(x);return p===pl(y)&&(p!=="zh"||x===y||x==="zh"||y==="zh")}
 function mk(code,id,L,k){return code+"|"+id+"|"+L+"|"+k}
@@ -256,15 +260,18 @@ function vKey(L){return KEY+"-voice"+(L?"-"+pl(L):"")}
 function langName(c){try{return new Intl.DisplayNames(["id"],{type:"language"}).of(vlang(c))||c}catch(e){return c}}
 function nat(x){return x.engine?2:/Natural|Online/i.test(x.name)?0:1} // suara neural Microsoft Edge (Online/Natural) diutamakan
 function pickV(vs,L){return vs.filter(function(x){return !x.engine&&vMatch(x,L)}).sort(function(a,b){return nat(a)-nat(b)})[0]||null}
-var srvInst={kokoro:false,kitten:[],piper:{},pocket:false};
+var srvInst={kokoro:false,kitten:[],piper:{},pocket:false,chatterbox:false,xtts:false,vibevoice:false},VIBE_VOICES=[],VIBE_LOC={en:"en-US",de:"de-DE",fr:"fr-FR",it:"it-IT",ja:"ja-JP",ko:"ko-KR",nl:"nl-NL",pl:"pl-PL",pt:"pt-BR",es:"es-ES"};
 function isInst(x){ // suara bawaan sistem selalu siap; suara mesin hanya jika modelnya sudah terpasang
   if(!x.engine)return true;
   if(x.engine==="kokoro")return !!srvInst.kokoro;
   if(x.engine==="kitten")return srvInst.kitten.indexOf(KITTEN_MODEL)>=0;
   if(x.engine==="pocket")return !!srvInst.pocket;
+  if(x.engine==="chatterbox")return !!srvInst.chatterbox;
+  if(x.engine==="xtts")return !!srvInst.xtts;
+  if(x.engine==="vibevoice")return !!srvInst.vibevoice;
   return !!srvInst.piper[x.id]}
 function loadInst(){fetch("/api/tts/engine/status").then(function(r){return r.json()}).then(function(st){
-  if(st.error||!st.kokoro)return;srvInst.kokoro=!!st.kokoro.cached;srvInst.kitten=(st.kitten||{}).cached||[];srvInst.pocket=!!(st.pocket||{}).cached;srvInst.piper={};((st.piper||{}).stored||[]).forEach(function(i){srvInst.piper[i]=1});
+  if(st.error||!st.kokoro)return;srvInst.kokoro=!!st.kokoro.cached;srvInst.kitten=(st.kitten||{}).cached||[];srvInst.pocket=!!(st.pocket||{}).cached;var cbc=(st.chatterbox||{}).cached||{};srvInst.chatterbox=!!(cbc.en||cbc.multi);srvInst.xtts=!!(st.xtts||{}).cached;var vv=st.vibevoice||{};srvInst.vibevoice=!!vv.cached;VIBE_VOICES=(vv.voices||[]).map(function(x){return {name:"VibeVoice · "+x.id.replace(/^[a-z]{2}-/i,"").replace(/_/g," "),lang:VIBE_LOC[x.lang]||"en-US",plang:x.lang,engine:"vibevoice",id:x.id}});srvInst.piper={};((st.piper||{}).stored||[]).forEach(function(i){srvInst.piper[i]=1});
   voices();voices2()}).catch(function(){})}
 function voices(){var v=synth?allVoices():[],s=$("voice"),old=s.value,L=mainLang(),pref=L||"id";
   v.sort(function(a,b){return (vMatch(a,pref)?0:1)-(vMatch(b,pref)?0:1)||(isInst(a)?0:1)-(isInst(b)?0:1)||nat(a)-nat(b)||a.name.localeCompare(b.name)});
@@ -490,6 +497,15 @@ var ENG_VOICES=[
   {name:"Pocket · lola",lang:"es-ES",plang:"es",engine:"pocket",id:"lola"},
   {name:"Pocket · giovanni",lang:"it-IT",plang:"it",engine:"pocket",id:"giovanni"},
   {name:"Pocket · rafael",lang:"pt-PT",plang:"pt",engine:"pocket",id:"rafael"},
+  {name:"Chatterbox · default",lang:"en-US",engine:"chatterbox",id:"default"},
+  {name:"XTTS · Claribel Dervla",lang:"en-US",engine:"xtts",id:"Claribel_Dervla"},
+  {name:"XTTS · Daisy Studious",lang:"en-US",engine:"xtts",id:"Daisy_Studious"},
+  {name:"XTTS · Gracie Wise",lang:"en-US",engine:"xtts",id:"Gracie_Wise"},
+  {name:"XTTS · Ana Florence",lang:"en-US",engine:"xtts",id:"Ana_Florence"},
+  {name:"XTTS · Andrew Chipper",lang:"en-US",engine:"xtts",id:"Andrew_Chipper"},
+  {name:"XTTS · Badr Odhiambo",lang:"en-US",engine:"xtts",id:"Badr_Odhiambo"},
+  {name:"XTTS · Dionisio Schuyler",lang:"en-US",engine:"xtts",id:"Dionisio_Schuyler"},
+  {name:"XTTS · Royston Min",lang:"en-US",engine:"xtts",id:"Royston_Min"},
   {name:"Piper · en_US lessac",lang:"en-US",engine:"piper",id:"en_US-lessac-medium"},
   {name:"Piper · en_US hfc_female",lang:"en-US",engine:"piper",id:"en_US-hfc_female-medium"},
   {name:"Piper · en_US amy",lang:"en-US",engine:"piper",id:"en_US-amy-medium"},
@@ -505,15 +521,15 @@ var ENG_VOICES=[
   {name:"Piper · tr_TR dfki",lang:"tr-TR",engine:"piper",id:"tr_TR-dfki-medium"},
   {name:"Piper · ar_JO kareem",lang:"ar-JO",engine:"piper",id:"ar_JO-kareem-medium"}
 ];
-/* Piper, Kokoro & Kitten berjalan di SERVER (engines.js). Browser hanya mengirim teks dan memutar WAV hasilnya. */
+/* Piper, Kokoro, Kitten, Pocket, Chatterbox, XTTS & VibeVoice berjalan di SERVER (engines.js). Browser hanya mengirim teks dan memutar WAV hasilnya. */
 var KITTEN_MODEL=(function(){try{return localStorage.getItem(KEY+"-kmodel")}catch(e){}})()||"nano"; // nano, micro, mini, nano-int8 (int8 sering gagal)
 if(KITTEN_MODEL==="nano-int8"){KITTEN_MODEL="nano";try{localStorage.setItem(KEY+"-kmodel","nano")}catch(e){}}
 var engQ=Promise.resolve(),engCache=new Map(),engAudio=null,engTimer=0;
-function allVoices(){return (synth?synth.getVoices():[]).concat(ENG_VOICES)}
+function allVoices(){return (synth?synth.getVoices():[]).concat(ENG_VOICES,VIBE_VOICES)}
 function importAny(urls){var i=0;function t(){return import(urls[i]).catch(function(e){if(++i>=urls.length)throw e;return t()})}return t()}
 function srvPost(path,body){return fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){
   if(r.ok)return r;return r.json().catch(function(){return {}}).then(function(j){throw new Error(j.error||("HTTP "+r.status))})})}
-function engViaServer(v,text){return srvPost("/api/tts/engine",{engine:v.engine,voice:v.id,text:text,model:KITTEN_MODEL,lang:v.engine==="pocket"?pocketLang(v):undefined}).then(function(r){return r.blob()})}
+function engViaServer(v,text){return srvPost("/api/tts/engine",{engine:v.engine,voice:v.id,text:text,model:KITTEN_MODEL,lang:ENG_LANGS[v.engine]?engLang(v):undefined}).then(function(r){return r.blob()})}
 /* Mode hibrida: Kokoro bisa dijalankan di perangkat lewat WebGPU (lebih cepat, tanpa beban server). Gagal/tidak didukung -> otomatis ke server. */
 var KOKORO_URLS=["https://cdn.jsdelivr.net/npm/kokoro-js@1.2.1/+esm"],kgpuBad=false,kgpuLoad=null;
 var KGPU=(function(){try{return localStorage.getItem(KEY+"-kgpu")==="1"}catch(e){}return false})();
@@ -564,19 +580,21 @@ function piperLocalGen(id,text){return piperLoad().then(function(m){
   return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
     var pre=st.indexOf(id)>=0?Promise.resolve():m.download(id,function(p){if(p&&p.total)toast("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%",true)}).then(function(){toast("Suara Piper siap")});
     return pre.then(function(){return m.predict({text:text,voiceId:id})})})})}
-function setWhere(v,where){var e=$("engwhere");if(e)e.textContent=({kokoro:"Kokoro",kitten:"Kitten",piper:"Piper",pocket:"Pocket"}[v.engine]||v.engine)+": "+where}
+function setWhere(v,where){var e=$("engwhere");if(e)e.textContent=({kokoro:"Kokoro",kitten:"Kitten",piper:"Piper",pocket:"Pocket",chatterbox:"Chatterbox",xtts:"XTTS",vibevoice:"VibeVoice"}[v.engine]||v.engine)+": "+where}
 function devJob(v,text){   // jalankan di perangkat bila dipilih; gagal -> server. Lokasi terakhir ditampilkan di samping kotak centang.
   var run=null;
   if(v.engine==="kokoro"&&kgpuOn())run=kokoroLocalGen(v.id,text);
   else if(v.engine==="kitten"&&locOn("kitten"))run=kittenLocalGen(v.id,text);
   else if(v.engine==="piper"&&locOn("piper"))run=piperLocalGen(v.id,text);
-  if(v.engine==="pocket"){var pl_=pocketLang(v);if(!pocketSeen[pl_]){pocketSeen[pl_]=1;toast("Pocket ("+pl_+"): pertama kali, model bahasa ini diunduh di server. Mohon tunggu…",true)}}
+  if(ENG_LANGS[v.engine]){var pl_=engLang(v),sk=v.engine==="pocket"?pl_:v.engine;if(!pocketSeen[sk]){pocketSeen[sk]=1;
+    toast(v.engine==="pocket"?"Pocket ("+pl_+"): pertama kali, model bahasa ini diunduh di server. Mohon tunggu…":(v.engine==="xtts"?"XTTS":"Chatterbox")+": pertama kali, model dimuat di server (bisa beberapa menit, lebih cepat dengan GPU). Mohon tunggu…",true)}}
+  if(v.engine==="vibevoice"&&!pocketSeen.vibevoice){pocketSeen.vibevoice=1;toast("VibeVoice: pertama kali, model dimuat di server (bisa beberapa menit, lebih cepat dengan GPU). Mohon tunggu…",true)}
   var srv=function(){return engViaServer(v,text).then(function(b){setWhere(v,"di server");return b})};
   if(!run)return srv();
   return run.then(function(b){setWhere(v,"di perangkat");return b},function(e){if(v.engine==="kokoro")kgpuBad=true;else locBad[v.engine]=true;
     toast("Di perangkat gagal, pakai server"+(e&&e.message?" ("+String(e.message).slice(0,60)+")":""));return srv()})}
 var pocketSeen={en:1};
-function devTag(v){if(v.engine==="pocket")return ":"+pocketLang(v);return v.engine==="kokoro"?(kgpuOn()?":dev":""):(locOn(v.engine)?":dev":"")}
+function devTag(v){if(ENG_LANGS[v.engine])return ":"+engLang(v);return v.engine==="kokoro"?(kgpuOn()?":dev":""):(locOn(v.engine)?":dev":"")}
 /* ---------- Suara klon (Pocket TTS di server) ---------- */
 function toWav24(file){   // decode apa pun -> mono 24 kHz, maks 30 detik, WAV
   return file.arrayBuffer().then(function(ab){var AC=window.AudioContext||window.webkitAudioContext,ctx=new AC();
@@ -587,25 +605,42 @@ function toWav24(file){   // decode apa pun -> mono 24 kHz, maks 30 detik, WAV
       for(c=0;c<buf.numberOfChannels;c++){var ch=buf.getChannelData(c);for(i=0;i<d.length;i++)d[i]+=ch[i]/buf.numberOfChannels}
       var src=oc.createBufferSource();src.buffer=mono;src.connect(oc.destination);src.start();return oc.startRendering()})
   }).then(function(r){return wavBlob(r.getChannelData(0),24000)})}
-function renderClones(list){var box=$("cll");box.textContent="";
-  list.forEach(function(c){var row=document.createElement("div"),n=document.createElement("span"),b=document.createElement("button");
-    n.textContent="Clone · "+c.name+" ("+(c.lang||"en")+") ";b.className="btn";b.textContent="Hapus";b.setAttribute("aria-label","Hapus suara "+c.name);
-    b.onclick=function(){if(!confirm('Hapus suara "'+c.name+'"?'))return;
-      fetch("/api/clone/"+encodeURIComponent(c.id),{method:"DELETE"}).then(function(){loadClones()}).catch(function(){toast("Gagal menghapus")})};
-    row.appendChild(n);row.appendChild(b);box.appendChild(row)})}
+var CLN_LABEL={en:"English",de:"Deutsch",fr:"Français",es:"Español",it:"Italiano",pt:"Português",nl:"Nederlands",ru:"Русский",pl:"Polski",tr:"Türkçe",ar:"العربية",zh:"中文",ja:"日本語",ko:"한국어",hi:"हिन्दी",ms:"Melayu",cs:"Čeština",hu:"Magyar",da:"Dansk",el:"Ελληνικά",fi:"Suomi",he:"עברית",no:"Norsk",sv:"Svenska",sw:"Kiswahili"},
+  CLN_ENG=[{e:"pocket",n:"Pocket",l:CLONE_POCKET},{e:"chatterbox",n:"Chatterbox",l:CB_LANGS},{e:"xtts",n:"XTTS",l:XTTS_LANGS}],cllBox={};
+function buildCloneForms(){var box=$("clforms");box.textContent="";
+  CLN_ENG.forEach(function(g){
+    var row=document.createElement("div"),h=document.createElement("b"),sl=document.createElement("select"),nm=document.createElement("input"),fl=document.createElement("input"),bt=document.createElement("button"),ls=document.createElement("div");
+    row.className="mdrow";row.style.cssText="flex-wrap:wrap;gap:6px";
+    h.innerHTML="Suara saya <span class=\"sub\">klon · "+g.n+"</span>";
+    sl.setAttribute("aria-label","Bahasa sampel suara "+g.n);
+    g.l.forEach(function(c){var o=document.createElement("option");o.value=c;o.textContent=CLN_LABEL[c]||c;sl.appendChild(o)});
+    nm.type="text";nm.maxLength=30;nm.placeholder="Nama suara";nm.setAttribute("aria-label","Nama suara klon "+g.n);nm.style.cssText="flex:1;min-width:90px";
+    fl.type="file";fl.accept="audio/*";fl.setAttribute("aria-label","Sampel suara "+g.n+" (3-30 detik)");fl.style.maxWidth="100%";
+    bt.className="btn";bt.textContent="Tambah";bt.onclick=function(){addClone(g.e,sl,nm,fl,bt)};
+    ls.className="sub";cllBox[g.e]=ls;
+    [h,sl,nm,fl,bt].forEach(function(x){row.appendChild(x)});box.appendChild(row);box.appendChild(ls)})}
+function renderClones(list){
+  CLN_ENG.forEach(function(g){var box=cllBox[g.e];box.textContent="";
+    list.filter(function(c){return (c.engine||"pocket")===g.e}).forEach(function(c){var row=document.createElement("div"),n=document.createElement("span"),b=document.createElement("button");
+      n.textContent="Clone · "+c.name+" ("+(c.lang||"en")+") ";b.className="btn";b.textContent="Hapus";b.setAttribute("aria-label","Hapus suara "+c.name+" ("+g.n+")");
+      b.onclick=function(){if(!confirm('Hapus suara "'+c.name+'" ('+g.n+')?'))return;
+        fetch("/api/clone/"+encodeURIComponent(c.id),{method:"DELETE"}).then(function(){loadClones()}).catch(function(){toast("Gagal menghapus")})};
+      row.appendChild(n);row.appendChild(b);box.appendChild(row)})})}
 function loadClones(){return fetch("/api/clone").then(function(r){return r.json()}).then(function(j){
   for(var i=ENG_VOICES.length-1;i>=0;i--)if(String(ENG_VOICES[i].id||"").indexOf("clone-")===0)ENG_VOICES.splice(i,1);
-  var L=j.clones||[];L.forEach(function(c){var cl=c.lang||"en";ENG_VOICES.push({name:"Clone · "+c.name,lang:cl,plang:cl,engine:"pocket",id:c.id})});
+  var L=j.clones||[],lab={pocket:"Pocket",chatterbox:"Chatterbox",xtts:"XTTS"};
+  L.forEach(function(c){var cl=c.lang||"en",e=c.engine||"pocket";ENG_VOICES.push({name:"Clone · "+c.name+" ("+lab[e]+")",lang:cl,plang:cl,engine:e,id:c.id})});
   renderClones(L);voices();voices2()}).catch(function(){})}
-function addClone(){
-  var f=$("clf").files[0],name=$("cln").value.trim();
+function addClone(engine,sl,nm,fl,btn){
+  var f=fl.files[0],name=nm.value.trim();
   if(!f){toast("Pilih berkas sampel suara dulu");return}
   if(!name){toast("Isi nama suara dulu");return}
-  var btn=$("cla");btn.disabled=true;toast("Memproses sampel…",true);
-  toWav24(f).then(function(w){var fd=new FormData();fd.append("name",name);fd.append("lang",$("clnl").value);fd.append("audio",w,"sampel.wav");
+  btn.disabled=true;toast("Memproses sampel…",true);
+  toWav24(f).then(function(w){var fd=new FormData();fd.append("name",name);fd.append("lang",sl.value);fd.append("engine",engine);fd.append("audio",w,"sampel.wav");
     return fetch("/api/clone",{method:"POST",body:fd}).then(function(r){return r.json().then(function(j){if(!r.ok||j.error)throw new Error(j.error||("HTTP "+r.status));return j})})
-  }).then(function(){$("cln").value="";$("clf").value="";toast("Suara ditambahkan. Pilih \"Clone · "+name+"\" di daftar suara");return loadClones()})
+  }).then(function(){nm.value="";fl.value="";toast("Suara ditambahkan. Pilih \"Clone · "+name+" ("+({pocket:"Pocket",chatterbox:"Chatterbox",xtts:"XTTS"}[engine])+")\" di daftar suara");return loadClones()})
   .catch(function(e){toast("Gagal: "+(e&&e.message||"sampel tidak bisa dibaca"))}).then(function(){btn.disabled=false})}
+buildCloneForms();
 function piperAll(quiet){
   if(!quiet)toast("Memuat daftar suara Piper…",true);
   return fetch("/api/tts/piper/voices").then(function(r){return r.json().then(function(j){if(!r.ok)throw new Error(j.error||("HTTP "+r.status));return j})}).then(function(j){
@@ -618,7 +653,7 @@ function piperAll(quiet){
 /* ---------- Unduh model lebih dulu (Kokoro, Kitten, Piper, Whisper) ---------- */
 function mdlGet(){try{return JSON.parse(localStorage.getItem(KEY+"-mdl")||"{}")}catch(e){return {}}}
 function mdlMark(k){try{var o=mdlGet();if(!o[k]){o[k]=1;localStorage.setItem(KEY+"-mdl",JSON.stringify(o));setTimeout(loadInst,300)}}catch(e){}}
-function mdlKey(v){return v.engine==="kokoro"?"kokoro":v.engine==="pocket"?"pocket":v.engine==="kitten"?"kitten:"+KITTEN_MODEL:"piper:"+v.id}
+function mdlKey(v){return v.engine==="kokoro"?"kokoro":v.engine==="pocket"?"pocket":v.engine==="chatterbox"?"chatterbox:"+(engLang(v)==="en"?"en":"multi"):v.engine==="xtts"?"xtts":v.engine==="vibevoice"?"vibevoice":v.engine==="kitten"?"kitten:"+KITTEN_MODEL:"piper:"+v.id}
 function mdlLoad(v,on){   // model diunduh/dimuat di server, tanpa membuat suara
   on("Mengunduh/memuat di server…");
   return srvPost("/api/tts/engine/preload",{engine:v.engine,voice:v.id,model:KITTEN_MODEL,lang:v.lang}).then(function(){})}
@@ -627,14 +662,19 @@ function mdSet(id,ok,where){var e=$(id);e.textContent=ok?"✓ sudah di "+(where|
 function mdStat(){
   var f=mdlGet();$("mdkn").textContent=KITTEN_MODEL;
   mdSet("mds-whisper",f["whisper:"+$("mdwm").value]);
-  ["kokoro","kitten","piper","pocket"].forEach(function(n){$("mds-"+n).textContent="memeriksa server…";$("mds-"+n).className="sub"});
+  ["kokoro","kitten","piper","pocket","chatterbox","xtts","vibevoice"].forEach(function(n){$("mds-"+n).textContent="memeriksa server…";$("mds-"+n).className="sub"});
   fetch("/api/tts/engine/status").then(function(r){return r.json()}).then(function(st){   // status Kokoro/Kitten/Piper hanya dari server
-    if(st.error)throw 0;var pst=st.piper||{},kk=st.kokoro||{},kt=st.kitten||{},pk=st.pocket||{};
+    if(st.error)throw 0;var pst=st.piper||{},kk=st.kokoro||{},kt=st.kitten||{},pk=st.pocket||{},cb=st.chatterbox||{},xt=st.xtts||{},vb=st.vibevoice||{};
     function srv(id,ok,inst,name){var e=$(id);if(inst===false){e.textContent="belum terpasang di server ("+name+")";e.className="sub"}else mdSet(id,ok,"server")}
     srv("mds-kokoro",kk.cached,kk.installed,"npm install");
     srv("mds-kitten",(kt.cached||[]).indexOf(KITTEN_MODEL)>=0,kt.installed,"pip install kittenml");
     var plg=$("mdpl").value;srv("mds-pocket",plg==="en"?pk.cached:!!f["pocket:"+plg],pk.installed,"pip install -U pocket-tts");
-    srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"pip install piper-tts")}).catch(function(){["kokoro","kitten","piper","pocket"].forEach(function(n){$("mds-"+n).textContent="server tidak merespons"})});
+    var cbk=$("mdcl").value;srv("mds-chatterbox",!!((cb.cached||{})[cbk]||f["chatterbox:"+cbk]),cb.installed,"pip install chatterbox-tts");
+    srv("mds-vibevoice",!!(vb.cached||f["vibevoice"]),vb.installed,"pip install -e .[streamingtts] dari repo microsoft/VibeVoice");
+    if(vb.installed&&!(vb.voices||[]).length)$("mds-vibevoice").textContent+=" · belum ada berkas suara .pt (lihat README)";
+    srv("mds-xtts",!!(xt.cached||f["xtts"]),xt.installed,"pip install coqui-tts");
+    if(xt.installed&&!xt.license)$("mds-xtts").textContent+=" · butuh COQUI_TOS_AGREED=1 di server (lisensi CPML)";
+    srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"pip install piper-tts")}).catch(function(){["kokoro","kitten","piper","pocket","chatterbox","xtts","vibevoice"].forEach(function(n){$("mds-"+n).textContent="server tidak merespons"})});
   if(window.caches)caches.open("transformers-cache").then(function(c){return c.keys()}).then(function(ks){   // Kokoro dan Whisper: cek langsung isi cache browser
     var wm=$("mdwm").value;
     mdSet("mds-whisper",ks.some(function(r){return r.url.indexOf("whisper-"+wm+"/")>=0&&/\.onnx/.test(r.url)}))}).catch(function(){})}
@@ -643,14 +683,14 @@ function mdPiperOpts(){var s=$("mdpv"),old=s.value;s.innerHTML="";
   if(old)s.value=old}
 function mdRun(key,label,fn){
   if(mdBusy)return;mdBusy=true;
-  ["kokoro","kitten","piper","pocket","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=true});
+  ["kokoro","kitten","piper","pocket","chatterbox","xtts","vibevoice","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=true});
   var bar=$("mdbar");bar.hidden=false;bar.removeAttribute("value");$("mdmsg").textContent="Memulai…";
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){mdWake=l}).catch(function(){})}catch(e){}   // layar tetap menyala dan cache dilindungi
   function on(t,pv){$("mdmsg").textContent=t;var m=/(\d+)%/.exec(t);if(pv!=null)bar.value=pv;else if(m)bar.value=+m[1];else bar.removeAttribute("value")}
   Promise.resolve().then(function(){return fn(on)}).then(function(r){
     var msg=typeof r==="string"?r:"Selesai: "+label;if(key)mdlMark(key);bar.value=100;$("mdmsg").textContent=msg;if(!$("mdlg").open)toast(typeof r==="string"?r:"Model "+label+" siap")
   }).catch(function(e){$("mdmsg").textContent="Gagal: "+(e&&e.message||e)}).then(function(){
-    mdBusy=false;["kokoro","kitten","piper","pocket","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=false});$("mdcancel").hidden=true;
+    mdBusy=false;["kokoro","kitten","piper","pocket","chatterbox","xtts","vibevoice","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=false});$("mdcancel").hidden=true;
     try{if(mdWake){mdWake.release();mdWake=null}}catch(e){}mdStat()})}
 var mdAbort=false;
 function piperMB(id){var q=id.split("-").pop();return q==="x_low"?20:q==="low"?60:q==="high"?110:65}   // perkiraan kasar ukuran per suara
@@ -683,9 +723,12 @@ $("mdbtn").onclick=function(){mdPiperOpts();$("mdlg").showModal();mdStat()};
 $("mdclose").onclick=function(){$("mdlg").close()};
 $("mdpv").onchange=$("mdwm").onchange=mdStat;
 $("mdd-kokoro").onclick=function(){mdRun("kokoro","Kokoro",function(on){return mdlLoad({engine:"kokoro",id:"af_heart"},on)})};
-$("cla").onclick=addClone;
 $("mdd-pocket").onclick=function(){var lg=$("mdpl").value;mdRun(lg==="en"?"pocket":"pocket:"+lg,"Pocket "+lg,function(on){return mdlLoad({engine:"pocket",id:"alba",lang:lg},on).then(function(){pocketSeen[lg]=1})})};
 $("mdpl").onchange=function(){mdStat()};
+$("mdcl").onchange=function(){mdStat()};
+$("mdd-chatterbox").onclick=function(){var k=$("mdcl").value;mdRun("chatterbox:"+k,"Chatterbox "+k,function(on){return mdlLoad({engine:"chatterbox",id:"default",lang:k},on).then(function(){pocketSeen.chatterbox=1})})};
+$("mdd-xtts").onclick=function(){mdRun("xtts","XTTS v2",function(on){return mdlLoad({engine:"xtts",id:"Claribel_Dervla",lang:"en"},on).then(function(){pocketSeen.xtts=1})})};
+$("mdd-vibevoice").onclick=function(){mdRun("vibevoice","VibeVoice",function(on){return mdlLoad({engine:"vibevoice",id:"default"},on).then(function(){pocketSeen.vibevoice=1})})};
 $("mdd-kitten").onclick=function(){mdRun("kitten:"+KITTEN_MODEL,"Kitten "+KITTEN_MODEL,function(on){return mdlLoad({engine:"kitten",id:"luna"},on)})};
 $("mdd-piper").onclick=function(){var id=$("mdpv").value;if(!id)return;mdRun("piper:"+id,"Piper "+id,function(on){return mdlLoad({engine:"piper",id:id},on)})};
 $("mdd-whisper").onclick=function(){var m=$("mdwm").value;mdRun("whisper:"+m,"Whisper "+m,function(on){
