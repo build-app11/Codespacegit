@@ -28,6 +28,24 @@ const wrap = (fn) => async (req, res) => {
   try { res.json(await fn(req)); } catch (e) { res.status(400).json({ error: e.message }); }
 };
 
+// Pocket TTS di perangkat pengguna: paket npm "pocket-tts-js" disajikan dari origin yang sama dengan halaman.
+// Harus same-origin karena paket ini membuat Web Worker dari berkas relatifnya (browser menolak worker lintas-origin, jadi CDN tidak bisa dipakai).
+const POCKET_JS_DIR = path.join(__dirname, "node_modules", "pocket-tts-js");
+function pocketJsEntry() {
+  let pj;
+  try { pj = JSON.parse(fs.readFileSync(path.join(POCKET_JS_DIR, "package.json"), "utf8")); }
+  catch (e) { throw new Error("Paket pocket-tts-js belum terpasang di server. Jalankan: npm install pocket-tts-js"); }
+  const pick = (v) => (typeof v === "string" ? v : v && typeof v === "object" ? (pick(v.import) || pick(v.browser) || pick(v.default) || pick(v.module)) : null);
+  const x = pj.exports;
+  let e = x ? pick(x["."] !== undefined ? x["."] : x) : null;
+  e = e || pj.module || (typeof pj.browser === "string" ? pj.browser : null) || pj.main || "index.js";
+  e = String(e).replace(/^\.\//, "");
+  if (!fs.existsSync(path.join(POCKET_JS_DIR, e))) throw new Error("Berkas utama pocket-tts-js tidak ditemukan (" + e + ")");
+  return e;
+}
+app.get("/api/pocket-device/entry", wrap(async () => ({ entry: "/vendor/pocket-tts-js/" + pocketJsEntry(), version: JSON.parse(fs.readFileSync(path.join(POCKET_JS_DIR, "package.json"), "utf8")).version })));
+app.use("/vendor/pocket-tts-js", express.static(POCKET_JS_DIR, { index: false, maxAge: "1d" }));
+
 // Web Link
 app.get("/api/extract", wrap(async (req) => {
   const u = new URL(req.query.url);
@@ -237,7 +255,7 @@ app.post("/api/tts", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// Mesin suara di server: Kokoro, Kitten, Piper, Pocket, Chatterbox, XTTS, VibeVoice (lebih cepat daripada di browser, model disimpan di server)
+// Mesin suara di server: Piper dan Pocket (model disimpan di server; keduanya juga bisa dijalankan di perangkat dari browser)
 app.post("/api/tts/engine", async (req, res) => {
   try {
     const wavBuf = await engines.synth(req.body || {});
@@ -246,9 +264,9 @@ app.post("/api/tts/engine", async (req, res) => {
 });
 app.post("/api/tts/engine/preload", wrap(async (req) => { await engines.preload(req.body || {}); return { ok: true }; }));
 app.get("/api/tts/engine/status", wrap(async () => engines.status()));
-// Suara klon (Pocket TTS, Chatterbox, XTTS): sampel WAV 3-30 detik milik pengguna
+// Suara klon (Pocket TTS): sampel WAV 3-30 detik milik pengguna
 app.get("/api/clone", wrap(async () => ({ clones: engines.cloneList() })));
-app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer, req.body && req.body.lang, req.body && req.body.engine)));
+app.post("/api/clone", upload.single("audio"), wrap(async (req) => engines.cloneAdd(req.body && req.body.name, req.file && req.file.buffer, req.body && req.body.lang)));
 app.delete("/api/clone/:id", wrap(async (req) => ({ ok: engines.cloneDel(req.params.id) })));
 app.get("/api/tts/piper/voices", wrap(async () => ({ voices: await engines.piperVoices() })));
 
@@ -367,8 +385,6 @@ app.listen(process.env.PORT || 3000, () => {
   console.log("Buka http://localhost:3000");
   engines.status().then((st) => {
     console.log("Mesin suara:", JSON.stringify(st));
-    // model yang sudah ada di disk langsung dimuat ke memori, jadi permintaan pertama tidak lambat
-    if (st.kokoro.installed && st.kokoro.cached) engines.preload({ engine: "kokoro" }).then(() => console.log("Kokoro siap di memori")).catch((e) => console.log("Kokoro gagal dimuat:", e.message));
   }).catch(() => {});
   phon.status().then((st) => console.log("Fonetik:", JSON.stringify(st))).catch(() => {});   // sekaligus memanaskan kamus
 });

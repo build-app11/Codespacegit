@@ -4,7 +4,6 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "setup:vibevoice": "bash setup_vibevoice.sh",
     "phon:test": "node test-phon.js",
     "podcast:test": "node test-podcast.js",
     "news:test": "node test-news.js",
@@ -25,8 +24,8 @@
     "any-ascii": "^0.3.0",
     "phonemizer": "^1.2.1",
     "@huggingface/transformers": "^3.0.0",
-    "kokoro-js": "^1.2.1",
-    "ffmpeg-static": "^5.2.0"
+    "ffmpeg-static": "^5.2.0",
+    "pocket-tts-js": "*"
   },
   "engines": {
     "node": ">=18"
