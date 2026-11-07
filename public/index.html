@@ -619,12 +619,27 @@ function pcHook(){if(pcHooked)return;pcHooked=true;var of=window.fetch.bind(wind
     if(m&&pcMem[m[1]]){var b=m[2]?pcMem[m[1]].json:pcMem[m[1]].onnx;
       return Promise.resolve(new Response(b,{status:200,headers:{"Content-Length":String(b.size),"Content-Type":m[2]?"application/json":"application/octet-stream"}}))}
     return of(input,init)}}
+/* predict() Piper berjalan di Web Worker, jadi fetch di halaman ini tidak terlihat olehnya. Cara utama: tulis berkas suara ke OPFS (folder privat origin)
+   dengan nama yang dicari pustaka (<id>.onnx dan <id>.onnx.json); pustaka memakai berkas OPFS itu tanpa mengunduh dari Hugging Face. */
+function pcOpfsPut(id,b){
+  if(!navigator.storage||!navigator.storage.getDirectory)return Promise.reject(new Error("browser ini tidak mendukung OPFS"));
+  return navigator.storage.getDirectory().then(function(root){
+    function put(name,blob){return root.getFileHandle(name,{create:true}).then(function(h){return h.getFile().then(function(f){
+      if(f.size===blob.size)return;return h.createWritable().then(function(w){return w.write(blob).then(function(){return w.close()})})})})}
+    return put(id+".onnx",b.onnx).then(function(){return put(id+".onnx.json",b.json)})})}
+function pcOpfsDel(id){
+  if(!navigator.storage||!navigator.storage.getDirectory)return Promise.resolve();
+  return navigator.storage.getDirectory().then(function(root){return Promise.all([id+".onnx",id+".onnx.json"].map(function(n){return root.removeEntry(n).catch(function(){})}))}).catch(function(){})}
 function piperCustomGen(v,text){
   return Promise.resolve(pcMem[v.id]?pcMem[v.id]:pcTx("readonly",function(s){return s.get(v.id)}).then(function(r){
     if(!r)throw new Error("suara kustom tidak ditemukan di browser ini (mungkin data situs dihapus)");
     return (pcMem[v.id]={onnx:r.onnx,json:r.json})}))
-  .then(function(){pcHook();return piperLoad()})
-  .then(function(m){return m.predict({text:text,voiceId:v.id})})
+  .then(function(b){pcHook();return pcOpfsPut(v.id,b)})
+  .then(function(){return piperLoad()})
+  .then(function(m){
+    return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
+      if(st.indexOf(v.id)<0)throw new Error("pustaka Piper tidak mengenali berkas suara di penyimpanan browser (ID "+v.id+")");
+      return m.predict({text:text,voiceId:v.id})})})
   .catch(function(e){var msg="Suara Piper kustom gagal dijalankan di browser: "+devMsg(e);toast(msg);throw new Error(msg)})}
 function buildPiperCustomForm(){var box=$("pcforms");box.textContent="";
   var row=document.createElement("div"),h=document.createElement("b"),nm=document.createElement("input"),sl=document.createElement("select"),
@@ -647,7 +662,7 @@ function renderPiperCustom(list){if(!pcBox)return;pcBox.textContent="";
     n.textContent="Piper · "+c.name+" ("+(c.lang||"en")+(c.mb?", "+c.mb+" MB":"")+") ";b.className="btn";b.textContent="Hapus";b.setAttribute("aria-label","Hapus suara Piper kustom "+c.name);
     b.onclick=function(){if(!confirm('Hapus suara "'+c.name+'" (Piper kustom) dari browser ini?'))return;
       pcTx("readwrite",function(s){return s.delete(c.id)}).then(function(){
-        delete pcMem[c.id];
+        delete pcMem[c.id];pcOpfsDel(c.id);
         if(locMod.piper)locMod.piper.then(function(m){return m.remove&&m.remove(c.id)}).catch(function(){});
         return loadPiperCustom()}).catch(function(){toast("Gagal menghapus")})};
     row.appendChild(n);row.appendChild(b);pcBox.appendChild(row)})}
