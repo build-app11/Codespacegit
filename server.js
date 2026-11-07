@@ -358,21 +358,79 @@ app.post("/api/phon", wrap(async (req) => {
 }));
 app.get("/api/phon/status", wrap(async () => phon.status()));
 
+// Kamus: FreeDictionaryAPI.com (data Wiktionary), sama dengan pop up kamus di player-video
+const FD_URL = "https://freedictionaryapi.com/api/v1/entries/";
+const FD_CACHE = new Map();
+function fdCands(q, lc) {
+  if (lc !== "en") return [q];
+  const a = [q], add = (x) => { if (x && x.length > 2 && !a.includes(x)) a.push(x); };
+  if (/'s$/.test(q)) add(q.slice(0, -2));
+  if (/n't$/.test(q)) add(q.slice(0, -3));
+  if (/ies$/.test(q)) add(q.slice(0, -3) + "y");
+  if (/(ches|shes|sses|xes|zes)$/.test(q)) add(q.slice(0, -2));
+  if (/s$/.test(q)) add(q.slice(0, -1));
+  if (/ing$/.test(q)) { const b = q.slice(0, -3); add(b); add(b + "e"); if (/(.)\1$/.test(b)) add(b.slice(0, -1)); }
+  if (/ied$/.test(q)) add(q.slice(0, -3) + "y");
+  if (/ed$/.test(q)) { const b = q.slice(0, -2); add(b); add(q.slice(0, -1)); if (/(.)\1$/.test(b)) add(b.slice(0, -1)); }
+  if (/ly$/.test(q)) add(q.slice(0, -2));
+  return a.slice(0, 5);
+}
+async function fdLookup(q, lc) {
+  const key = lc + ":" + q;
+  if (FD_CACHE.has(key)) return FD_CACHE.get(key);
+  let res = null;
+  for (const w of fdCands(q, lc)) {
+    const r = await fetch(FD_URL + lc + "/" + encodeURIComponent(w) + "?translations=true", { signal: AbortSignal.timeout(10000) });
+    if (r.status === 404) continue;
+    if (!r.ok) throw new Error(r.status === 429 ? "Batas permintaan kamus tercapai. Coba lagi nanti." : "Kamus tidak bisa dimuat (" + r.status + ").");
+    const j = await r.json();
+    if (j && j.entries && j.entries.length) { res = { word: w, entries: j.entries }; break; }
+  }
+  if (FD_CACHE.size > 500) FD_CACHE.clear();
+  FD_CACHE.set(key, res);
+  return res;
+}
+function fdArti(entries, codes) {
+  const out = new Set();
+  const walk = (x) => { (x.translations || []).forEach((t) => { if (t.language && codes.includes(t.language.code) && t.word) out.add(t.word); }); (x.subsenses || []).forEach(walk); };
+  entries.forEach((e) => (e.senses || []).forEach(walk));
+  return [...out].slice(0, 8);
+}
+
 app.get("/api/word", wrap(async (req) => {
   const { w, s, tl } = req.query, L = String(req.query.l || "");
   if (!w || w.length > 60 || !tl) throw new Error("Kata tidak valid");
   const [d, sd] = await Promise.all([gt(w, tl, ["t", "bd", "ex"]), s ? gt(s, tl, ["t"]) : null]);
   const lang = L || String(d[2] || "");
-  const [pw, ps] = await Promise.all([
+  const fixed = { iw: "he", jw: "jv", in: "id" };
+  let lc = String(lang).split(/[-_]/)[0].toLowerCase(); lc = fixed[lc] || lc;
+  const tc = String(tl).split(/[-_]/)[0].toLowerCase(), codes = tc === "zh" ? ["cmn", "zh"] : [tc];
+  const [pw, ps, fd] = await Promise.all([
     phon.analyze(w, lang, { rm: true, ip: true }).catch(() => ({ rm: "", ip: "" })),
     s && s.length <= 400 ? phon.analyze(s, lang, { rm: true, ip: false }).catch(() => ({ rm: "", ip: "" })) : { rm: "", ip: "" },
+    (lc ? fdLookup(String(w).toLowerCase().replace(/[‘’]/g, "'"), lc) : Promise.resolve(null)).then((r) => ({ r }), (e) => ({ err: e.message })),
   ]);
   const res = { word: w, translation: segs(d), alts: [], examples: [], sentence: s || "", sentenceTr: sd ? segs(sd) : "",
-    translit: pw.rm, sentenceTranslit: ps.rm, ipa: pw.ip ? ["/" + pw.ip + "/"] : [] };
+    translit: pw.rm, sentenceTranslit: ps.rm, ipa: pw.ip ? ["/" + pw.ip + "/"] : [], entries: [], arti: [], base: "", dictErr: fd.err || "" };
+  if (fd.r) {
+    res.base = fd.r.word;
+    res.arti = fdArti(fd.r.entries, codes);
+    res.entries = fd.r.entries.map((e) => ({
+      pos: e.partOfSpeech || "",
+      senses: (e.senses || []).filter((x) => x && x.definition).slice(0, 8).map((x) => ({
+        d: x.definition,
+        ex: (x.examples || []).slice(0, 2).map((y) => (typeof y === "string" ? y : (y && y.text) || "")).filter(Boolean),
+      })),
+    })).filter((e) => e.senses.length);
+    if (!res.ipa.length) {
+      const pr = fd.r.entries.flatMap((e) => e.pronunciations || []).find((p) => p && p.text);
+      if (pr) res.ipa = [/^[\/\[]/.test(pr.text) ? pr.text : "/" + pr.text + "/"];
+    }
+  }
   (d[1] || []).forEach((e) => res.alts.push({ pos: e[0], terms: (e[1] || []).slice(0, 5) }));
   const ex = (d[13] && d[13][0]) || [];
   res.examples = ex.slice(0, 3).map((x) => String(x[0]).replace(/<[^>]+>/g, ""));
-  if (res.examples.length) {
+  if (!res.entries.length && res.examples.length) {
     try {
       const arr = segs(await gt(res.examples.join("\n"), tl, ["t"])).split("\n");
       if (arr.length === res.examples.length) res.exTr = arr;
