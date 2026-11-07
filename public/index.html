@@ -497,7 +497,29 @@ var ENG_VOICES=[
   {name:"Pocket · lola",lang:"es-ES",plang:"es",engine:"pocket",id:"lola"},
   {name:"Pocket · giovanni",lang:"it-IT",plang:"it",engine:"pocket",id:"giovanni"},
   {name:"Pocket · rafael",lang:"pt-PT",plang:"pt",engine:"pocket",id:"rafael"},
-  {name:"Chatterbox · default",lang:"en-US",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · English",lang:"en-US",plang:"en",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · العربية",lang:"ar-SA",plang:"ar",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Dansk",lang:"da-DK",plang:"da",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Deutsch",lang:"de-DE",plang:"de",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Ελληνικά",lang:"el-GR",plang:"el",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Español",lang:"es-ES",plang:"es",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Suomi",lang:"fi-FI",plang:"fi",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Français",lang:"fr-FR",plang:"fr",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · עברית",lang:"he-IL",plang:"he",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · हिन्दी",lang:"hi-IN",plang:"hi",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Italiano",lang:"it-IT",plang:"it",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · 日本語",lang:"ja-JP",plang:"ja",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · 한국어",lang:"ko-KR",plang:"ko",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Melayu",lang:"ms-MY",plang:"ms",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Nederlands",lang:"nl-NL",plang:"nl",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Norsk",lang:"nb-NO",plang:"no",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Polski",lang:"pl-PL",plang:"pl",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Português",lang:"pt-BR",plang:"pt",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Русский",lang:"ru-RU",plang:"ru",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Svenska",lang:"sv-SE",plang:"sv",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Kiswahili",lang:"sw-KE",plang:"sw",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · Türkçe",lang:"tr-TR",plang:"tr",engine:"chatterbox",id:"default"},
+  {name:"Chatterbox · 中文",lang:"zh-CN",plang:"zh",engine:"chatterbox",id:"default"},
   {name:"XTTS · Claribel Dervla",lang:"en-US",engine:"xtts",id:"Claribel_Dervla"},
   {name:"XTTS · Daisy Studious",lang:"en-US",engine:"xtts",id:"Daisy_Studious"},
   {name:"XTTS · Gracie Wise",lang:"en-US",engine:"xtts",id:"Gracie_Wise"},
@@ -735,7 +757,7 @@ $("mdd-whisper").onclick=function(){var m=$("mdwm").value;mdRun("whisper:"+m,"Wh
   podPct=function(x){on("Mengunduh model Whisper… "+x+"%")};on("Memuat model Whisper…");return podAsr(m,false)})};
 /* satu per satu (antrean) dan di-cache supaya kalimat berikutnya bisa disiapkan lebih dulu */
 function engGen(v,text){
-  var key=v.engine+(v.engine==="kitten"?":"+KITTEN_MODEL:"")+devTag(v)+"|"+v.id+"|"+text;if(engCache.has(key))return engCache.get(key);
+  var key=v.engine+(v.engine==="kitten"?":"+KITTEN_MODEL:"")+devTag(v)+"|"+v.id+(v.plang?"|"+v.plang:"")+"|"+text;if(engCache.has(key))return engCache.get(key);
   var p=engQ=engQ.catch(function(){}).then(function(){var job=devJob(v,text);
     return job.then(function(b){mdlMark(mdlKey(v));return b})});
   engCache.set(key,p);p.catch(function(){engCache.delete(key)});
