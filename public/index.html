@@ -483,7 +483,7 @@ function lsGet(k){try{return localStorage.getItem(KEY+"-"+k)==="1"}catch(e){}ret
 function locOn(e){return !!LOC[e]&&!locBad[e]}
 function lsSet(k,on){try{localStorage.setItem(KEY+"-"+k,on?"1":"0")}catch(e){}}
 function piperLoad(){if(!locMod.piper)locMod.piper=importAny(PIPER_URLS).catch(function(e){locMod.piper=null;throw e});return locMod.piper}
-function piperLocalGen(id,text){return piperLoad().then(function(m){
+function piperLocalGen(id,text){return pcSlotRelease(id).then(piperLoad).then(function(m){
   return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
     var pre=st.indexOf(id)>=0?Promise.resolve():m.download(id,function(p){if(p&&p.total)toast("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%",true)}).then(function(){toast("Suara Piper siap")});
     return pre.then(function(){return m.predict({text:text,voiceId:id})})})})}
@@ -604,7 +604,7 @@ function addClone(engine,sl,nm,fl,btn){
   .catch(function(e){toast("Gagal: "+(e&&e.message||"sampel tidak bisa dibaca"))}).then(function(){btn.disabled=false})}
 buildCloneForms();
 /* ---------- Suara Piper kustom (unggah .onnx + .onnx.json; disimpan di IndexedDB browser, dijalankan lewat Piper WASM di perangkat) ---------- */
-var pcBox=null,pcDbP=null,pcMem={},pcHooked=false;
+var pcBox=null,pcDbP=null;
 function pcDb(){if(!pcDbP)pcDbP=new Promise(function(ok,no){
   if(!window.indexedDB){no(new Error("browser ini tidak mendukung penyimpanan lokal (IndexedDB)"));return}
   var r=indexedDB.open(KEY+"-pcustom",1);r.onupgradeneeded=function(){r.result.createObjectStore("v",{keyPath:"id"})};
@@ -612,35 +612,40 @@ function pcDb(){if(!pcDbP)pcDbP=new Promise(function(ok,no){
 function pcTx(mode,fn){return pcDb().then(function(db){return new Promise(function(ok,no){
   var t=db.transaction("v",mode),res=fn(t.objectStore("v"));
   t.oncomplete=function(){ok(res&&res.result)};t.onerror=t.onabort=function(){no(t.error||new Error("penyimpanan browser gagal"))}})})}
-/* Pustaka Piper mengambil model lewat fetch(URL Hugging Face). Untuk suara kustom, permintaan ke ID suara unik kita dijawab dari Blob di browser. */
-function pcHook(){if(pcHooked)return;pcHooked=true;var of=window.fetch.bind(window);
-  window.fetch=function(input,init){
-    var u=typeof input==="string"?input:(input&&input.url)||String(input),m=/([a-z]{2,3}_[A-Z]{2}-pc[0-9a-f]{8}-medium)\.onnx(\.json)?(?:[?#]|$)/.exec(u);
-    if(m&&pcMem[m[1]]){var b=m[2]?pcMem[m[1]].json:pcMem[m[1]].onnx;
-      return Promise.resolve(new Response(b,{status:200,headers:{"Content-Length":String(b.size),"Content-Type":m[2]?"application/json":"application/octet-stream"}}))}
-    return of(input,init)}}
-/* predict() Piper berjalan di Web Worker, jadi fetch di halaman ini tidak terlihat olehnya. Cara utama: tulis berkas suara ke OPFS (folder privat origin)
-   dengan nama yang dicari pustaka (<id>.onnx dan <id>.onnx.json); pustaka memakai berkas OPFS itu tanpa mengunduh dari Hugging Face. */
-function pcOpfsPut(id,b){
+/* Cara kerja: pustaka Piper hanya mengenal ID suara resmi (ID lain dipetakan ke "undefined" lalu minta ke Hugging Face). Jadi berkas suara kustom
+   dititipkan ke OPFS (folder "piper") dengan nama sebuah suara resmi ("slot"); pustaka membaca berkas OPFS itu lebih dulu sebelum mengunduh, jadi
+   model dan konfigurasi (sample rate, fonem, bahasa) yang dipakai adalah milik suara kustom. Pemetaan slot -> suara kustom disimpan di localStorage. */
+var PC_SLOTS=["en_US-hfc_female-medium","en_US-lessac-medium","en_US-amy-medium","en_US-ryan-medium"],pcQ=Promise.resolve();
+function pcSlotMap(){try{return JSON.parse(localStorage.getItem(KEY+"-pcslot")||"{}")||{}}catch(e){return {}}}
+function pcSlotSave(o){try{localStorage.setItem(KEY+"-pcslot",JSON.stringify(o))}catch(e){}}
+function pcPiperDir(){
   if(!navigator.storage||!navigator.storage.getDirectory)return Promise.reject(new Error("browser ini tidak mendukung OPFS"));
-  return navigator.storage.getDirectory().then(function(root){
-    function put(name,blob){return root.getFileHandle(name,{create:true}).then(function(h){return h.getFile().then(function(f){
-      if(f.size===blob.size)return;return h.createWritable().then(function(w){return w.write(blob).then(function(){return w.close()})})})})}
-    return put(id+".onnx",b.onnx).then(function(){return put(id+".onnx.json",b.json)})})}
-function pcOpfsDel(id){
-  if(!navigator.storage||!navigator.storage.getDirectory)return Promise.resolve();
-  return navigator.storage.getDirectory().then(function(root){return Promise.all([id+".onnx",id+".onnx.json"].map(function(n){return root.removeEntry(n).catch(function(){})}))}).catch(function(){})}
-function piperCustomGen(v,text){
-  return Promise.resolve(pcMem[v.id]?pcMem[v.id]:pcTx("readonly",function(s){return s.get(v.id)}).then(function(r){
+  return navigator.storage.getDirectory().then(function(r){return r.getDirectoryHandle("piper",{create:true})})}
+function pcSlotClear(slot){
+  return pcPiperDir().then(function(d){return Promise.all([slot+".onnx",slot+".onnx.json"].map(function(n){return d.removeEntry(n).catch(function(){})}))}).catch(function(){})
+    .then(function(){var m=pcSlotMap();delete m[slot];pcSlotSave(m)})}
+function pcSlotRelease(realId){return pcSlotMap()[realId]?pcSlotClear(realId):Promise.resolve()}   // suara resmi yang slot-nya dipinjam: kosongkan dulu
+function pcSlotsDrop(id){var m=pcSlotMap();return Promise.all(Object.keys(m).filter(function(k){return m[k]===id}).map(pcSlotClear))}
+function pcSlotPut(slot,id,b){
+  return pcPiperDir().then(function(d){
+    function ok(name,blob){return d.getFileHandle(name).then(function(h){return h.getFile()}).then(function(f){return f.size===blob.size}).catch(function(){return false})}
+    return Promise.all([ok(slot+".onnx",b.onnx),ok(slot+".onnx.json",b.json)]).then(function(r){
+      if(pcSlotMap()[slot]===id&&r[0]&&r[1])return;
+      function put(name,blob){return d.getFileHandle(name,{create:true}).then(function(h){return h.createWritable().then(function(w){return w.write(blob).then(function(){return w.close()})})})}
+      return put(slot+".onnx",b.onnx).then(function(){return put(slot+".onnx.json",b.json)}).then(function(){var m=pcSlotMap();m[slot]=id;pcSlotSave(m)})})})}
+function pcPickSlot(id,st){
+  var m=pcSlotMap(),k=Object.keys(m).filter(function(x){return m[x]===id&&PC_SLOTS.indexOf(x)>=0})[0];if(k)return k;
+  var free=PC_SLOTS.filter(function(x){return !m[x]&&st.indexOf(x)<0})[0];if(free)return free;      // slot kosong (belum dipakai suara apa pun)
+  var other=PC_SLOTS.filter(function(x){return m[x]})[0];return other||PC_SLOTS[0]}                  // terakhir: timpa slot kustom lain / suara resmi
+function piperCustomRun(v,text){
+  return pcTx("readonly",function(s){return s.get(v.id)}).then(function(r){
     if(!r)throw new Error("suara kustom tidak ditemukan di browser ini (mungkin data situs dihapus)");
-    return (pcMem[v.id]={onnx:r.onnx,json:r.json})}))
-  .then(function(b){pcHook();return pcOpfsPut(v.id,b)})
-  .then(function(){return piperLoad()})
-  .then(function(m){
-    return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
-      if(st.indexOf(v.id)<0)throw new Error("pustaka Piper tidak mengenali berkas suara di penyimpanan browser (ID "+v.id+")");
-      return m.predict({text:text,voiceId:v.id})})})
+    return piperLoad().then(function(m){
+      return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
+        var slot=pcPickSlot(v.id,st);
+        return pcSlotPut(slot,v.id,r).then(function(){return m.predict({text:text,voiceId:slot})})})})})
   .catch(function(e){var msg="Suara Piper kustom gagal dijalankan di browser: "+devMsg(e);toast(msg);throw new Error(msg)})}
+function piperCustomGen(v,text){var p=pcQ.then(function(){return piperCustomRun(v,text)});pcQ=p.catch(function(){});return p}   // satu per satu: slot berbagi berkas
 function buildPiperCustomForm(){var box=$("pcforms");box.textContent="";
   var row=document.createElement("div"),h=document.createElement("b"),nm=document.createElement("input"),sl=document.createElement("select"),
     f1=document.createElement("input"),f2=document.createElement("input"),bt=document.createElement("button");
@@ -662,7 +667,7 @@ function renderPiperCustom(list){if(!pcBox)return;pcBox.textContent="";
     n.textContent="Piper · "+c.name+" ("+(c.lang||"en")+(c.mb?", "+c.mb+" MB":"")+") ";b.className="btn";b.textContent="Hapus";b.setAttribute("aria-label","Hapus suara Piper kustom "+c.name);
     b.onclick=function(){if(!confirm('Hapus suara "'+c.name+'" (Piper kustom) dari browser ini?'))return;
       pcTx("readwrite",function(s){return s.delete(c.id)}).then(function(){
-        delete pcMem[c.id];pcOpfsDel(c.id);
+        pcSlotsDrop(c.id);
         if(locMod.piper)locMod.piper.then(function(m){return m.remove&&m.remove(c.id)}).catch(function(){});
         return loadPiperCustom()}).catch(function(){toast("Gagal menghapus")})};
     row.appendChild(n);row.appendChild(b);pcBox.appendChild(row)})}
