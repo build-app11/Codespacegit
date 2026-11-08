@@ -89,53 +89,6 @@ async function saveBody(res, file, opt) {
   return n;
 }
 
-/* ---------- Whisper ---------- */
-const asrCache = {};
-let sink = null, asrTimer = null;
-// Whisper dilepas dari RAM bila tidak dipakai: atur lewat MODEL_IDLE_SEC (detik, bawaan 90; 0 = lepas segera setelah selesai).
-const IDLE_SEC = process.env.MODEL_IDLE_SEC !== undefined && process.env.MODEL_IDLE_SEC !== "" && !isNaN(+process.env.MODEL_IDLE_SEC) ? Math.max(0, +process.env.MODEL_IDLE_SEC) : 90;
-async function releaseAsr() {
-  asrTimer = null;
-  const ps = Object.keys(asrCache).map((k) => { const p = asrCache[k]; delete asrCache[k]; return p; });
-  if (!ps.length) return;
-  for (const p of ps) { try { const a = await p; if (a && typeof a.dispose === "function") await a.dispose(); } catch (e) {} }
-  if (global.gc) { try { global.gc(); } catch (e) {} }
-  console.log("[whisper] dilepas dari RAM (menganggur " + IDLE_SEC + " dtk); dimuat lagi otomatis saat dipakai");
-}
-function asrIdle() {   // dipanggil setelah transkripsi selesai/dibatalkan
-  clearTimeout(asrTimer);
-  asrTimer = setTimeout(releaseAsr, IDLE_SEC * 1000);
-  if (asrTimer.unref) asrTimer.unref();
-}
-function getAsr(key, onPct) {
-  const id = MODELS[key];
-  if (!id) return Promise.reject(new Error("Model tidak dikenal"));
-  clearTimeout(asrTimer); asrTimer = null;
-  sink = onPct || null;
-  if (!asrCache[key]) {
-    asrCache[key] = (async () => {
-      let tf;
-      try { tf = await import("@huggingface/transformers"); }
-      catch (e) { throw new Error("Paket @huggingface/transformers belum terpasang. Jalankan: npm install"); }
-      tf.env.cacheDir = path.join(__dirname, "models");
-      const files = {};
-      try {
-        return await tf.pipeline("automatic-speech-recognition", id, {
-          dtype: "q8",
-          progress_callback: (p) => {
-            if (!sink || !p || !p.file) return;
-            if (p.status === "progress" && p.total) files[p.file] = { l: p.loaded, t: p.total };
-            let l = 0, t = 0;
-            for (const f in files) { l += files[f].l; t += files[f].t; }
-            if (t) sink(Math.min(99, Math.round((l / t) * 100)));
-          },
-        });
-      } catch (e) { throw new Error("Gagal memuat model " + id + ": " + e.message); }
-    })().catch((e) => { delete asrCache[key]; throw e; });
-  }
-  return asrCache[key];
-}
-
 const clean = (t) => {
   t = String(t || "").replace(/\s+/g, " ").trim();
   if (!t || /^[\[(].*[\])]$/.test(t) || !/[\p{L}\p{N}]/u.test(t)) return "";   // kosong, [MUSIK], atau hanya tanda baca
@@ -237,13 +190,12 @@ async function pcmStream(file, start, out, signal) {
 }
 
 async function status() {
-  const out = { ffmpeg: false, whisper: false, models: Object.keys(MODELS) };
+  const out = { ffmpeg: false, models: Object.keys(MODELS) };
   out.ffmpeg = await new Promise((ok) => {
     const p = spawn(ffmpegBin, ["-version"], { stdio: "ignore" });
     p.on("error", () => ok(false)); p.on("close", (c) => ok(c === 0));
   });
-  try { await import("@huggingface/transformers"); out.whisper = true; } catch (e) {}
   return out;
 }
 
-module.exports = { MODELS, parseFeed, saveBody, getAsr, asrIdle, transcribeFile, pcmStream, status };
+module.exports = { MODELS, parseFeed, saveBody, transcribeFile, pcmStream, status };

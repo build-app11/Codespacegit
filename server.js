@@ -94,53 +94,6 @@ app.get("/api/podcast/feed", wrap(async (req) => {
   return podcast.parseFeed((await readLimited(r, 10 * 1024 * 1024)).toString("utf8"));
 }));
 
-// Transkripsi: unduh audio ke file sementara, jalankan Whisper per 30 detik, kirim hasilnya bertahap (NDJSON).
-// Satu transkripsi dalam satu waktu supaya CPU server tidak berebut. Jendela Whisper yang sedang diproses tidak bisa
-// diputus di tengah jalan, jadi permintaan baru setelah pembatalan menunggu pekerjaan lama selesai (bukan ditolak).
-let podJob = null;
-app.post("/api/podcast/transcribe", async (req, res) => {
-  const b = req.body || {}, model = String(b.model || "base"), lang = String(b.lang || "auto").toLowerCase();
-  const start = Math.max(0, Math.min(+b.start || 0, 86400));
-  if (!podcast.MODELS[model]) return res.status(400).json({ error: "Model tidak dikenal" });
-  if (lang !== "auto" && !/^[a-z]{2,3}$/.test(lang)) return res.status(400).json({ error: "Bahasa tidak valid" });
-  if (podJob && podJob.ac.signal.aborted) await Promise.race([podJob.done, new Promise((ok) => setTimeout(ok, 120000))]);
-  if (podJob) return res.status(409).json({ error: "Masih ada transkripsi lain yang berjalan. Tunggu selesai atau batalkan dulu." });
-  const ac = new AbortController();
-  let finish; podJob = { ac, done: new Promise((ok) => { finish = ok; }) };
-  res.on("close", () => ac.abort());
-  res.set({ "Content-Type": "application/x-ndjson; charset=utf-8", "Cache-Control": "no-store", "X-Accel-Buffering": "no" });
-  res.flushHeaders();
-  const send = (o) => { if (!res.writableEnded && !res.destroyed) res.write(JSON.stringify(o) + "\n"); };
-  const beat = setInterval(() => send({ type: "ping" }), 15000);   // jaga koneksi tetap hidup saat satu jendela lama diproses
-  let dir = null;
-  try {
-    send({ type: "status", msg: "Mengunduh audio…" });
-    const r = await safeFetch(b.url, { headers: { "User-Agent": POD_UA }, signal: ac.signal });
-    if (!r.ok) throw new Error("Server audio membalas dengan status " + r.status);
-    dir = fs.mkdtempSync(path.join(os.tmpdir(), "suara-pod-"));
-    const file = path.join(dir, "audio");
-    let t0 = 0;
-    await podcast.saveBody(r, file, { onBytes: (n, len) => { const t = Date.now(); if (t - t0 > 400) { t0 = t; send({ type: "dl", n, len }); } } });
-    if (ac.signal.aborted) return;
-    send({ type: "status", msg: "Memuat model Whisper…" });
-    const asr = await podcast.getAsr(model, (pct) => send({ type: "model", pct }));
-    if (ac.signal.aborted) return;
-    send({ type: "status", msg: "Mentranskripsi…" });
-    const out = await podcast.transcribeFile(file, {
-      asr, lang, start, signal: ac.signal,
-      onSegment: (s) => send({ type: "seg", s: s.s, e: s.e, text: s.text }),
-      onProgress: (t) => send({ type: "progress", t }),
-    });
-    if (!out.aborted) send({ type: "done" });
-  } catch (e) {
-    if (!ac.signal.aborted) send({ type: "error", error: e.message });
-  } finally {
-    clearInterval(beat);
-    podJob = null; finish(); podcast.asrIdle();
-    if (dir) fs.rm(dir, { recursive: true, force: true }, () => {});
-    res.end();
-  }
-});
 // Whisper di browser: server hanya mengunduh audio dan men-decode ke PCM 16 kHz mono (aliran biner), model berjalan di perangkat pengguna.
 let pcmBusy = 0;
 app.get("/api/podcast/pcm", async (req, res) => {
