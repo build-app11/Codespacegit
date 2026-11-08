@@ -1719,6 +1719,7 @@ async function supEngineLoad(){
     proxyMarkBad();ort.env.wasm.proxy=false;
     Object.keys(sessions).forEach(function(k){try{sessions[k].release()}catch(x){}});sessions={};got=0;
     await build()}
+  supDev.px=!!ort.env.wasm.proxy;
   supDev.eng={ort:ort,sessions:sessions,cfg:cfg,indexer:indexer,base:m.base};supDev.engKey=key;
   return supDev.eng}
 async function supStyle(E,voice){
@@ -1731,7 +1732,9 @@ function supRun(session,provided){
   var feeds={};
   session.inputNames.forEach(function(n){
     if(!(n in provided))throw new Error('input model "'+n+'" tidak dikenali (tersedia: '+session.inputNames.join(", ")+")");
-    feeds[n]=provided[n]});
+    var t=provided[n];
+    if(supDev.px&&t&&t.data&&typeof t.data.slice==="function")t=new t.constructor(t.type,t.data.slice(),t.dims);   // buffer asli dipindah ke worker; salinan yang dikirim
+    feeds[n]=t});
   return session.run(feeds)}
 function supPre(text,lang){   // sama dengan preprocessText di halaman awalan
   var t=String(text).normalize("NFKD");
@@ -1778,7 +1781,16 @@ async function supSynth(E,style,raw,lang){
   var voc=S.vocoder,vo=await supRun(voc,voc.inputNames.length===1?(function(){var f={};f[voc.inputNames[0]]=latent;return f})():{latent:latent}),
     wav=vo[voc.outputNames[0]].data;
   return Float32Array.from(wav.subarray(0,Math.min(wav.length,Math.floor(cfg.sampleRate*dur))))}
-async function superLocalGen(voice,text,lang){
+async function superLocalGen(voice,text,lang,retry){
+  try{return await superLocalGen1(voice,text,lang)}
+  catch(e){
+    if(retry||!supDev.px||!/detached|postMessage|DataCloneError|proxy|worker/i.test(String((e&&e.message)||e)))throw e;
+    try{console.warn("[Supertonic] mode thread terpisah bermasalah saat berjalan, pakai thread utama:",e)}catch(x){}
+    proxyMarkBad();var old=supDev.eng,o=await supDev.ort;o.env.wasm.proxy=false;
+    supDev.eng=null;supDev.styles={};supDev.pend=null;supDev.px=false;
+    if(old)Object.keys(old.sessions).forEach(function(k){try{old.sessions[k].release()}catch(x){}});
+    return superLocalGen(voice,text,lang,true)}}
+async function superLocalGen1(voice,text,lang){
   var E=await supEngine(),style=await supStyle(E,voice),parts=supChunks(text),bufs=[],n=0,gap=Math.floor(E.cfg.sampleRate*0.1);
   for(var i=0;i<parts.length;i++){var a=await supSynth(E,style,parts[i],lang);bufs.push(a);n+=a.length+(i<parts.length-1?gap:0)}
   if(!n)throw new Error("tidak ada audio yang dihasilkan");
