@@ -97,15 +97,13 @@ Pocket tidak mendukung bahasa Indonesia; untuk teks Indonesia pakai Supertonic, 
 
 **Mode di perangkat (Piper dan Pocket):** di baris pengaturan pemutar ada dua kotak centang, "Piper di perangkat" dan "Pocket di perangkat". Bawaan: mati (jalan di server), supaya pengguna data seluler tidak mengunduh ratusan MB tanpa sadar.
 
-- **Piper di perangkat** (WASM, ±20-110 MB per suara, disimpan di cache browser). Kalau gagal, otomatis kembali ke server.
-- **Pocket di perangkat** (WASM lewat paket npm [`pocket-tts-js`](https://github.com/vlapky/pocket-tts-js), onnxruntime-web di Web Worker, model INT8 ±125-200 MB per bahasa dari Hugging Face, disimpan di cache browser). Alurnya:
-  1. Saat dicentang muncul konfirmasi (ukuran unduhan, kebutuhan RAM, bahasa yang tersedia). Setelah disetujui, aplikasi **menguji dulu di perangkat**: memuat model dan membuat satu kalimat pendek.
-  2. Bila uji **berhasil**, muncul peringatan hijau "✅ Berhasil: Pocket dijalankan di perangkat ini", status di samping kotak centang menjadi "Pocket: ✅ berjalan di perangkat", dan kalimat berikutnya dibuat di perangkat (server tidak dipakai).
-  3. Bila uji **gagal** (browser tidak mendukung WebAssembly/Web Worker, memori habis, unduhan gagal, paket belum terpasang di server, dsb.), muncul peringatan "⚠️ Pocket gagal dijalankan di perangkat ini (alasan). Dikembalikan ke server", kotak centang **dimatikan otomatis**, dan Pocket kembali memakai server. Hal yang sama terjadi bila kegagalan baru muncul di tengah pemakaian.
-  4. Yang otomatis tetap di server tanpa mematikan centang: suara klon, bahasa yang belum punya bundel di perangkat (Belanda dan Jepang), dan suara yang tidak ada di bundel bahasa itu (mis. suara `alba` dengan teks Spanyol; bundel Spanyol hanya punya `lola`).
-  - Bundel perangkat tersedia untuk Inggris, Jerman, Spanyol, Italia, Portugis, dan Prancis. Server hanya menyajikan berkas paketnya (`/vendor/pocket-tts-js/`, harus satu origin karena browser menolak Web Worker dari CDN); model diunduh browser langsung dari Hugging Face.
-  - Pasang paketnya di server: `npm install pocket-tts-js` (sudah ada di `optionalDependencies`). Bila belum terpasang, centang akan gagal dengan pesan yang jelas lalu kembali ke server. Setelah terpasang dan berjalan baik, sebaiknya kunci versinya di `package.json` (sekarang `*`).
-  - Tanpa header `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy`, onnxruntime-web berjalan satu thread (lebih lambat tapi tetap jalan). Header itu sengaja tidak dipasang global karena dapat memblokir gambar/sumber lintas-origin lain di aplikasi ini.
+- **Piper di perangkat** (WASM, ±20-110 MB per suara, disimpan di browser). Library `@mintplex-labs/piper-tts-web@1.0.5` dimuat dari esm.sh dengan onnxruntime-web dikunci ke 1.18.0 (sama dengan `awalan.html`); bila sumber itu gagal, otomatis dicoba sumber esm.sh lain lalu jsDelivr (maks. 3 percobaan). Suara diunduh sekali saat pertama dipakai, atau lewat **Unduh model** (pilih **Simpan di: Browser ini**). Kalau semuanya gagal, kembali ke server dengan pesan penyebab di toast dan Console.
+- **Pocket di perangkat** (WASM, Web Worker mandiri yang sama dengan `awalan.html`, kode ada di `<script id="pocketWorkerSrc">` di `public/index.html`; onnxruntime-web 1.20.0 dari jsDelivr). Tidak lagi memakai paket npm `pocket-tts-js` dan tidak butuh file apa pun dari server. Model INT8, tokenizer, dan `voices.bin` diunduh browser langsung dari Hugging Face (Space `KevinAHM/pocket-tts-web`) dan disimpan di Cache API (`pocket-tts-hf-v1`). Bahasa di perangkat: Inggris, Jerman, Spanyol, Italia, Portugis (Prancis, Belanda, Jepang tetap di server). Alurnya:
+  1. Saat dicentang muncul pemberitahuan, lalu aplikasi **menguji dulu**: memuat paket bahasa (mengunduh bila belum ada) dan membuat satu kalimat pendek.
+  2. Bila berhasil, status menjadi "✅ berjalan di perangkat" dan kalimat berikutnya dibuat di browser, tanpa menyentuh server.
+  3. Bila gagal (WebAssembly/Worker tidak didukung, memori habis, unduhan gagal), muncul pesan penyebab lengkap, kotak centang dimatikan, dan Pocket kembali ke server.
+  4. Yang tetap di server tanpa mematikan centang: suara klon, bahasa tanpa paket perangkat, dan suara yang tidak ada di paket bahasa itu.
+  - Tanpa header `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy`, onnxruntime-web berjalan satu thread (lebih lambat tapi tetap jalan).
   - Model dan suara bawaan Pocket © Kyutai, lisensi CC-BY-4.0 (wajib mencantumkan atribusi bila aplikasi dipublikasikan). Paket `pocket-tts-js` berlisensi MIT.
 
 Sorotan kata untuk mesin ini diperkirakan dari posisi audio. Tombol unduh MP3 tetap memakai endpoint Google Translate di server.
@@ -130,3 +128,6 @@ Kotak centang **Supertonic di perangkat** di baris pengaturan pemutar menjalanka
 - Belum ada WebGPU di mode ini (hanya WASM). Di HP dengan RAM kecil, pilih int8.
 - Bila Supertonic di perangkat gagal di aplikasi: buka `/awalan.html` di alamat yang sama (halaman uji mandiri yang menjalankan model yang sama). Kalau di sana jalan tetapi di aplikasi tidak, kirim pesan di Console browser (F12); kalau di sana juga gagal, penyebabnya perangkat atau jaringan (RAM, akses ke huggingface.co/jsdelivr).
 - Konfirmasi dialog `confirm()` sengaja tidak dipakai untuk Supertonic karena diblokir di panel pratinjau (Simple Browser) Codespaces; pakai tab browser biasa dari tab Ports.
+
+## Unduh model ke browser (Piper, Pocket, Supertonic)
+Di dialog **Unduh model** ada pilihan **Simpan di**: **Browser ini** (bawaan) atau **Server**. Dengan **Browser ini**, tombol Unduh menyimpan model ke cache browser (Piper lewat library-nya, Pocket di Cache API `pocket-tts-hf-v1`, Supertonic di Cache API `supertonic3-assets-v1`) dan status "✓ sudah di browser" dibaca langsung dari cache. Setelah itu centang **Piper/Pocket/Supertonic di perangkat** di pemutar supaya model itu dipakai. Pilihan **Server** berjalan seperti sebelumnya (`/api/tts/engine/preload`).
