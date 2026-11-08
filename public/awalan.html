@@ -1,0 +1,2134 @@
+<!doctype html>
+<html lang="id">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>TTS di Browser</title>
+<style>
+  :root {
+    --bg: #f6f7f9;
+    --card: #ffffff;
+    --text: #15181d;
+    --muted: #667085;
+    --line: #e2e5ea;
+    --accent: #3457d5;
+    --accent-text: #ffffff;
+    --danger: #b42318;
+    --ok: #067647;
+    --radius: 12px;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --bg: #101216;
+      --card: #181b21;
+      --text: #eceef2;
+      --muted: #98a2b3;
+      --line: #2a2f38;
+      --accent: #7b96ff;
+      --accent-text: #0b1020;
+      --danger: #f97066;
+      --ok: #47cd89;
+    }
+  }
+  * { box-sizing: border-box; }
+  [hidden] { display: none !important; }
+  body {
+    margin: 0;
+    background: var(--bg);
+    color: var(--text);
+    font: 16px/1.5 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+  }
+  main { max-width: 720px; margin: 0 auto; padding: 32px 16px 64px; }
+  h1 { font-size: 1.5rem; margin: 0 0 4px; }
+  .sub { color: var(--muted); margin: 0 0 24px; font-size: .95rem; }
+  form, .panel {
+    background: var(--card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 20px;
+  }
+  label { display: block; font-weight: 600; font-size: .9rem; margin-bottom: 6px; }
+  textarea, select, input[type="text"] {
+    width: 100%;
+    font: inherit;
+    color: var(--text);
+    background: var(--bg);
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    padding: 10px 12px;
+  }
+  textarea { min-height: 150px; resize: vertical; }
+  textarea:focus, select:focus, input:focus, button:focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 1px;
+  }
+  .row { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; margin-top: 16px; }
+  .field { margin-top: 16px; }
+  .row .field { margin-top: 0; }
+  @media (max-width: 520px) { .row { grid-template-columns: 1fr; } }
+  input[type="range"] { width: 100%; accent-color: var(--accent); }
+  .range-head { display: flex; justify-content: space-between; }
+  .range-head output { color: var(--muted); font-variant-numeric: tabular-nums; }
+  .hint { color: var(--muted); font-size: .85rem; margin: 6px 0 0; }
+  details { margin-top: 16px; }
+  summary { cursor: pointer; font-weight: 600; font-size: .9rem; }
+  .actions { display: flex; gap: 12px; align-items: center; margin-top: 20px; flex-wrap: wrap; }
+  button {
+    font: inherit;
+    font-weight: 600;
+    border: 0;
+    border-radius: 8px;
+    padding: 10px 20px;
+    background: var(--accent);
+    color: var(--accent-text);
+    cursor: pointer;
+  }
+  button:disabled { opacity: .55; cursor: progress; }
+  a.dl {
+    color: var(--accent);
+    font-weight: 600;
+    text-decoration: none;
+    border: 1px solid var(--line);
+    padding: 9px 16px;
+    border-radius: 8px;
+  }
+  a.dl[hidden] { display: none; }
+  .panel { margin-top: 16px; }
+  .panel[hidden] { display: none; }
+  progress { width: 100%; height: 8px; accent-color: var(--accent); }
+  #status { margin: 0 0 8px; font-size: .92rem; }
+  #status.error { color: var(--danger); }
+  #status.ok { color: var(--ok); }
+  audio { width: 100%; margin-top: 4px; }
+  .vlist { border: 1px solid var(--line); border-radius: 8px; max-height: 300px; overflow: auto; margin-top: 12px; background: var(--bg); }
+  .vlist:empty { display: none; }
+  .vrow { display: flex; gap: 10px; align-items: center; padding: 8px 12px; border-bottom: 1px solid var(--line); }
+  .vrow:last-child { border-bottom: 0; }
+  label.vpick { flex: 1; display: flex; gap: 8px; align-items: baseline; cursor: pointer; font-weight: 400; margin: 0; min-width: 0; flex-wrap: wrap; }
+  .vname { font-weight: 600; }
+  .vid { color: var(--muted); font-size: .8rem; overflow: hidden; text-overflow: ellipsis; }
+  .vstate { font-size: .8rem; color: var(--muted); white-space: nowrap; }
+  .vstate.ok { color: var(--ok); }
+  button.small { padding: 6px 12px; font-size: .85rem; background: transparent; color: var(--accent); border: 1px solid var(--line); }
+  .inline { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+  input[type="file"] { width: 100%; font: inherit; color: var(--text); }
+  footer { color: var(--muted); font-size: .8rem; margin-top: 24px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>Text-to-Speech di Browser</h1>
+  <p class="sub">Teks jadi suara, diproses langsung di browser kamu. Teks tidak dikirim ke server mana pun.</p>
+
+  <form id="form" autocomplete="off">
+    <label for="text">Teks</label>
+    <textarea id="text" placeholder="Tulis atau tempel teks di sini…" required>Halo! Ini adalah contoh suara yang dibuat sepenuhnya di dalam browser.</textarea>
+    <p class="hint">Tips: Ctrl/⌘ + Enter untuk membuat suara. Teks panjang otomatis dipecah per kalimat.</p>
+
+    <div class="field">
+      <label for="engine">Mesin suara</label>
+      <select id="engine">
+        <option value="supertonic" selected>Supertonic 3 (31 bahasa)</option>
+        <option value="piper">Piper (WASM, suara per bahasa)</option>
+        <option value="pocket">Pocket TTS (Kyutai, Inggris/Jerman, bisa klon suara)</option>
+      </select>
+    </div>
+
+    <div class="row">
+      <div class="field">
+        <label for="lang">Bahasa</label>
+        <select id="lang"></select>
+      </div>
+      <div class="field" id="voiceField">
+        <label for="voice">Suara</label>
+        <select id="voice">
+          <option value="F1">Perempuan 1 (F1)</option>
+          <option value="F2">Perempuan 2 (F2)</option>
+          <option value="F3">Perempuan 3 (F3)</option>
+          <option value="F4">Perempuan 4 (F4)</option>
+          <option value="F5">Perempuan 5 (F5)</option>
+          <option value="M1" selected>Laki-laki 1 (M1)</option>
+          <option value="M2">Laki-laki 2 (M2)</option>
+          <option value="M3">Laki-laki 3 (M3)</option>
+          <option value="M4">Laki-laki 4 (M4)</option>
+          <option value="M5">Laki-laki 5 (M5)</option>
+        </select>
+      </div>
+    </div>
+
+    <div id="piperPanel" hidden>
+      <div class="row" style="margin-top:16px">
+        <div class="field">
+          <label for="piperLangSel">Bahasa suara</label>
+          <select id="piperLangSel"></select>
+        </div>
+        <div class="field">
+          <label for="piperSearch">Cari suara</label>
+          <input id="piperSearch" type="text" placeholder="mis. news, lessac">
+        </div>
+      </div>
+      <div id="piperList" class="vlist" role="radiogroup" aria-label="Daftar suara Piper"></div>
+      <div class="inline" style="margin-top:8px">
+        <p id="piperInfo" class="hint" style="margin:0"></p>
+        <button type="button" id="piperReload" class="small">Muat ulang daftar</button>
+      </div>
+      <p id="piperNote" class="hint">Pilih satu suara, lalu klik <b>Unduh</b> untuk memasangnya di browser (disimpan di penyimpanan browser, tidak perlu unduh ulang). Piper berjalan lewat WebAssembly (CPU). Cek lisensi tiap suara: beberapa suara Piper, termasuk bahasa Indonesia, dilaporkan hanya untuk penggunaan non-komersial.</p>
+    </div>
+
+    <div id="pocketPanel" hidden>
+      <div class="field" style="margin-top:16px">
+        <label for="pocketVoice">Suara</label>
+        <select id="pocketVoice">
+          <option value="">Bawaan paket bahasa</option>
+          <option value="custom">Suara sendiri (klon dari file audio)</option>
+        </select>
+        <p class="hint">Daftar suara muncul setelah paket bahasa dimuat (pertama kali klik <b>Buat suara</b>).</p>
+      </div>
+      <div class="field" id="pocketCloneField" hidden>
+        <label for="pocketFile">File audio referensi</label>
+        <input id="pocketFile" type="file" accept="audio/*">
+        <p class="hint">Pakai rekaman pendek yang bersih (maks. 10 detik dipakai). Diproses lokal di browser, tidak diunggah. Gunakan hanya suara yang kamu punya haknya atau dengan izin pemilik suara.</p>
+      </div>
+      <p id="pocketNote" class="hint">Pocket TTS (±100 juta parameter, model resmi Kyutai dalam ekspor ONNX int8) berjalan lewat WebAssembly di Web Worker. Paket bahasa: Inggris, Jerman, Italia, Portugis, Spanyol (±125 MB per bahasa, diunduh sekali lalu disimpan di cache browser). Bahasa lain, termasuk <b>Indonesia</b>, dibaca dengan paket Inggris sehingga beraksen asing. Angka dibaca apa adanya, jadi tulis dengan huruf bila perlu.</p>
+    </div>
+
+    <div class="row" id="supParams">
+      <div class="field">
+        <div class="range-head"><label for="speed">Kecepatan</label><output id="speedOut">1.05×</output></div>
+        <input id="speed" type="range" min="0.7" max="2" step="0.05" value="1.05">
+      </div>
+      <div class="field">
+        <div class="range-head"><label for="steps">Kualitas (langkah)</label><output id="stepsOut">8</output></div>
+        <input id="steps" type="range" min="5" max="12" step="1" value="8">
+      </div>
+    </div>
+
+    <details id="supAdvanced">
+      <summary>Pengaturan lanjutan</summary>
+      <div class="row" style="margin-top:12px">
+        <div class="field">
+          <label for="model">Sumber model</label>
+          <select id="model">
+            <option value="official">Resmi Supertone, fp32 (±400 MB)</option>
+            <option value="int8">int8 ringan, mirror komunitas (±111 MB)</option>
+            <option value="archive">Arsip Supertone, fp32 (±400 MB)</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="backend">Backend</label>
+          <select id="backend">
+            <option value="wasm" selected>WASM / CPU (stabil)</option>
+            <option value="webgpu">WebGPU (cepat, eksperimental)</option>
+          </select>
+        </div>
+      </div>
+      <p class="hint">Model diunduh sekali dari Hugging Face lalu disimpan di cache browser. Varian int8 selalu memakai WASM/CPU.</p>
+    </details>
+
+    <div class="actions">
+      <button id="go" type="submit">Buat suara</button>
+      <a id="dl" class="dl" hidden download="supertonic.wav">Unduh WAV</a>
+    </div>
+  </form>
+
+  <section id="panel" class="panel" hidden aria-live="polite">
+    <p id="status"></p>
+    <progress id="bar" max="1" value="0" hidden></progress>
+    <audio id="player" controls hidden></audio>
+  </section>
+
+  <footer>
+    Model Supertonic 3 © Supertone Inc., lisensi OpenRAIL-M (ada batasan penggunaan). Piper dan suara-suaranya punya lisensi masing-masing, periksa sebelum dipakai di situs publik. Pocket TTS © Kyutai (CC BY 4.0), ekspor ONNX dan kode runtime dari KevinAHM/pocket-tts-web (periksa lisensi di Space tersebut sebelum dipakai komersial); suara bawaan punya lisensi sendiri; dilarang meniru suara orang tanpa izin atau menyajikan hasilnya sebagai rekaman asli. Kamu bertanggung jawab atas teks yang kamu ubah menjadi suara.
+  </footer>
+</main>
+
+<script type="text/plain" id="pocketWorkerSrc">
+let ort = null;
+
+const DEFAULT_LANGUAGE = "english_2026-04";
+const LANGUAGE_BUNDLES = ["english_2026-04", "german", "italian", "portuguese", "spanish"];
+const MODEL_STEMS = {
+    mimi_encoder: "mimi_encoder_int8.onnx",
+    text_conditioner: "text_conditioner_int8.onnx",
+    flow_lm_main: "flow_lm_main_int8.onnx",
+    flow_lm_flow: "flow_lm_flow_int8.onnx",
+    mimi_decoder: "mimi_decoder_int8.onnx",
+};
+const DEBUG_LOGS = false;
+const CHUNK_GAP_SEC = 0.25;
+const MAX_FRAMES = 500;
+const LSD_STEPS = 1;
+const RESET_FLOW_STATE_EACH_CHUNK = true;
+const RESET_MIMI_STATE_EACH_CHUNK = true;
+
+let currentLanguage = DEFAULT_LANGUAGE;
+let currentBundleDir = null;
+let bundleMetadata = null;
+let tokenizerProcessor = null;
+let tokenizerModelB64 = null;
+let bosBeforeVoice = null;
+
+let mimiEncoderSession = null;
+let textConditionerSession = null;
+let flowLmMainSession = null;
+let flowLmFlowSession = null;
+let mimiDecoderSession = null;
+
+let currentSampleRate = 24000;
+let currentSamplesPerFrame = 1920;
+let currentLatentDim = 32;
+let currentConditioningDim = 1024;
+let currentMaxTokenPerChunk = 50;
+
+let predefinedVoiceRecords = {};
+let customVoiceEmbedding = null;
+let currentVoiceName = null;
+let voiceConditioningCache = new Map();
+
+let stTensors = [];
+let isGenerating = false;
+let isReady = false;
+
+const HF_BASE = "https://huggingface.co/spaces/KevinAHM/pocket-tts-web/resolve/main/";
+const CACHE_NAME = "pocket-tts-hf-v1";
+
+function bundleDir(language) {
+    return `${HF_BASE}onnx/${language}`;
+}
+
+function bundlePath(language, filename) {
+    return `${bundleDir(language)}/${filename}`;
+}
+
+let lastProgressAt = 0;
+async function fetchCached(url, label) {
+    let cache = null;
+    try {
+        cache = await caches.open(CACHE_NAME);
+        const hit = await cache.match(url);
+        if (hit) {
+            postMessage({ type: "download", label, loaded: 1, total: 1, cached: true });
+            return await hit.arrayBuffer();
+        }
+    } catch (e) {
+        cache = null;
+    }
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(`Gagal mengunduh ${label} (HTTP ${res.status})`);
+    const total = Number(res.headers.get("content-length")) || 0;
+    const reader = res.body.getReader();
+    const parts = [];
+    let got = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value);
+        got += value.length;
+        const now = performance.now();
+        if (now - lastProgressAt > 120) {
+            lastProgressAt = now;
+            postMessage({ type: "download", label, loaded: got, total });
+        }
+    }
+    const out = new Uint8Array(got);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    postMessage({ type: "download", label, loaded: got, total: got });
+    try { if (cache) await cache.put(url, new Response(out)); } catch (e) { /* kuota penuh: abaikan */ }
+    return out.buffer;
+}
+
+let spModule = null;
+async function loadSentencePiece() {
+    if (spModule) return spModule;
+    const buf = await fetchCached(HF_BASE + "sentencepiece.js", "sentencepiece.js");
+    const url = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
+    spModule = await import(url);
+    return spModule;
+}
+
+function debugLog(...args) {
+    if (DEBUG_LOGS) {
+        console.log(...args);
+    }
+}
+
+function makeFilledArray(shape, dtype, fill) {
+    const size = shape.reduce((a, b) => a * b, 1);
+    let data;
+
+    if (dtype === "int64") {
+        data = new BigInt64Array(size);
+    } else if (dtype === "bool") {
+        data = new Uint8Array(size);
+    } else {
+        data = new Float32Array(size);
+        if (fill === "nan") {
+            data.fill(NaN);
+        } else if (fill === "ones") {
+            data.fill(1);
+        }
+    }
+
+    return data;
+}
+
+function createTensor(dtype, data, dims) {
+    return new ort.Tensor(dtype, data, dims);
+}
+
+function initStateFromManifest(manifest) {
+    const state = {};
+    for (const entry of manifest) {
+        state[entry.input_name] = createTensor(
+            entry.dtype,
+            makeFilledArray(entry.shape, entry.dtype, entry.fill),
+            entry.shape
+        );
+    }
+    return state;
+}
+
+function cloneState(state) {
+    return { ...state };
+}
+
+function updateStateFromManifestOutputs(state, result, manifest) {
+    for (const entry of manifest) {
+        state[entry.input_name] = result[entry.output_name];
+    }
+}
+
+function groupVoiceRecordByModule(record) {
+    const grouped = {};
+    for (const [key, value] of Object.entries(record)) {
+        const slash = key.indexOf("/");
+        if (slash === -1) continue;
+        const moduleName = key.slice(0, slash);
+        const tensorKey = key.slice(slash + 1);
+        if (!grouped[moduleName]) {
+            grouped[moduleName] = {};
+        }
+        grouped[moduleName][tensorKey] = value;
+    }
+    return grouped;
+}
+
+function adaptTypedArray(source, entry) {
+    const targetShape = entry.shape;
+    const targetSize = targetShape.reduce((a, b) => a * b, 1);
+    const target = makeFilledArray(targetShape, entry.dtype, entry.fill);
+
+    if (source.shape.length === targetShape.length) {
+        const exactShape = source.shape.every((dim, idx) => dim === targetShape[idx]);
+        if (exactShape) {
+            if (entry.dtype === "int64") {
+                return new BigInt64Array(source.data);
+            }
+            if (entry.dtype === "bool") {
+                return new Uint8Array(source.data);
+            }
+            return new Float32Array(source.data);
+        }
+    }
+
+    if (source.data.length === targetSize) {
+        if (entry.dtype === "int64") {
+            return new BigInt64Array(source.data);
+        }
+        if (entry.dtype === "bool") {
+            return new Uint8Array(source.data);
+        }
+        return new Float32Array(source.data);
+    }
+
+    if (source.shape.length !== targetShape.length) {
+        return target;
+    }
+
+    const strides = [];
+    let stride = 1;
+    for (let i = source.shape.length - 1; i >= 0; i--) {
+        strides[i] = stride;
+        stride *= source.shape[i];
+    }
+
+    const indices = new Array(source.shape.length).fill(0);
+    const maxIndices = source.shape.map((dim, idx) => Math.min(dim, targetShape[idx]));
+
+    function targetIndex(coords) {
+        let idx = 0;
+        let tStride = 1;
+        for (let i = targetShape.length - 1; i >= 0; i--) {
+            idx += coords[i] * tStride;
+            tStride *= targetShape[i];
+        }
+        return idx;
+    }
+
+    let done = false;
+    while (!done) {
+        let sourceIdx = 0;
+        for (let i = 0; i < indices.length; i++) {
+            sourceIdx += indices[i] * strides[i];
+        }
+        target[targetIndex(indices)] = source.data[sourceIdx];
+
+        for (let dim = indices.length - 1; dim >= 0; dim--) {
+            indices[dim] += 1;
+            if (indices[dim] < maxIndices[dim]) {
+                break;
+            }
+            indices[dim] = 0;
+            if (dim === 0) {
+                done = true;
+            }
+        }
+    }
+
+    return target;
+}
+
+function deriveStep(moduleState) {
+    if (moduleState.step) {
+        return { data: BigInt64Array.from([BigInt(moduleState.step.data[0])]), shape: [1], dtype: "int64" };
+    }
+    if (moduleState.offset && !moduleState.end_offset) {
+        return { data: BigInt64Array.from([BigInt(moduleState.offset.data[0])]), shape: [1], dtype: "int64" };
+    }
+    if (moduleState.current_end) {
+        return { data: BigInt64Array.from([BigInt(moduleState.current_end.shape[0])]), shape: [1], dtype: "int64" };
+    }
+    return { data: BigInt64Array.from([0n]), shape: [1], dtype: "int64" };
+}
+
+function stateFromVoiceRecord(record) {
+    const grouped = groupVoiceRecordByModule(record);
+    const state = initStateFromManifest(bundleMetadata.flow_lm_state_manifest);
+
+    for (const entry of bundleMetadata.flow_lm_state_manifest) {
+        const moduleState = grouped[entry.module] || {};
+        let source = moduleState[entry.key];
+        if (!source && entry.key === "step") {
+            source = deriveStep(moduleState);
+        }
+        if (!source) {
+            continue;
+        }
+
+        const data = adaptTypedArray(source, entry);
+        state[entry.input_name] = createTensor(entry.dtype, data, entry.shape);
+    }
+
+    return state;
+}
+
+function prepareVoiceEmbeddingData(voiceEmb) {
+    let data = voiceEmb.data;
+    let dims = voiceEmb.shape.slice();
+
+    if (bundleMetadata.insert_bos_before_voice && bosBeforeVoice) {
+        const bosData = bosBeforeVoice.data;
+        const combined = new Float32Array(bosData.length + data.length);
+        combined.set(bosData, 0);
+        combined.set(data, bosData.length);
+        data = combined;
+        dims = [1, dims[1] + bosBeforeVoice.shape[1], dims[2]];
+    }
+
+    return createTensor("float32", data, dims);
+}
+
+async function buildVoiceConditionedState(voiceEmb) {
+    const flowLmState = initStateFromManifest(bundleMetadata.flow_lm_state_manifest);
+    const emptySeq = createTensor("float32", new Float32Array(0), [1, 0, currentLatentDim]);
+    const voiceTensor = prepareVoiceEmbeddingData(voiceEmb);
+
+    const result = await flowLmMainSession.run({
+        sequence: emptySeq,
+        text_embeddings: voiceTensor,
+        ...flowLmState,
+    });
+
+    updateStateFromManifestOutputs(flowLmState, result, bundleMetadata.flow_lm_state_manifest);
+    return flowLmState;
+}
+
+async function ensurePredefinedVoiceCached(voiceName, options = {}) {
+    const { force = false, statusText = "Preparing voice..." } = options;
+    if (!predefinedVoiceRecords[voiceName]) {
+        throw new Error(`Unknown built-in voice: ${voiceName}`);
+    }
+
+    if (!force && voiceConditioningCache.has(voiceName)) {
+        return voiceConditioningCache.get(voiceName);
+    }
+
+    postMessage({ type: "status", status: statusText, state: "loading" });
+    const conditioned = stateFromVoiceRecord(predefinedVoiceRecords[voiceName]);
+    voiceConditioningCache.set(voiceName, conditioned);
+    return conditioned;
+}
+
+async function ensureCustomVoiceCached(options = {}) {
+    const { force = false, statusText = "Preparing custom voice..." } = options;
+    if (!customVoiceEmbedding) {
+        throw new Error("No custom voice loaded.");
+    }
+
+    if (!force && voiceConditioningCache.has("custom")) {
+        return voiceConditioningCache.get("custom");
+    }
+
+    postMessage({ type: "status", status: statusText, state: "loading" });
+    const conditioned = await buildVoiceConditionedState(customVoiceEmbedding);
+    voiceConditioningCache.set("custom", conditioned);
+    return conditioned;
+}
+
+function parseNpyFloat32(buffer) {
+    const view = new DataView(buffer);
+    const magic = new Uint8Array(buffer, 0, 6);
+    const expected = [0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59];
+    for (let i = 0; i < expected.length; i++) {
+        if (magic[i] !== expected[i]) {
+            throw new Error("Invalid NPY file");
+        }
+    }
+
+    const major = view.getUint8(6);
+    const headerLen = major === 1 ? view.getUint16(8, true) : view.getUint32(8, true);
+    const headerOffset = major === 1 ? 10 : 12;
+    const headerText = new TextDecoder().decode(new Uint8Array(buffer, headerOffset, headerLen));
+    const shapeMatch = headerText.match(/\(\s*([0-9,\s]+)\)/);
+    if (!shapeMatch) {
+        throw new Error("Could not parse NPY shape");
+    }
+    const shape = shapeMatch[1]
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => Number.parseInt(part, 10));
+    const dataOffset = headerOffset + headerLen;
+    const data = new Float32Array(buffer, dataOffset);
+    return { data: new Float32Array(data), shape };
+}
+
+function parseVoiceStatesBin(buffer) {
+    const view = new DataView(buffer);
+    let offset = 0;
+    const magic = new TextDecoder().decode(new Uint8Array(buffer, offset, 5));
+    offset += 5;
+    if (magic !== "PTVB1") {
+        throw new Error("Invalid voices.bin header");
+    }
+
+    const voices = {};
+    const voiceCount = view.getUint32(offset, true);
+    offset += 4;
+
+    for (let voiceIndex = 0; voiceIndex < voiceCount; voiceIndex++) {
+        const nameLen = view.getUint16(offset, true);
+        offset += 2;
+        const name = new TextDecoder().decode(new Uint8Array(buffer, offset, nameLen));
+        offset += nameLen;
+
+        const tensorCount = view.getUint16(offset, true);
+        offset += 2;
+        const tensors = {};
+
+        for (let tensorIndex = 0; tensorIndex < tensorCount; tensorIndex++) {
+            const keyLen = view.getUint16(offset, true);
+            offset += 2;
+            const key = new TextDecoder().decode(new Uint8Array(buffer, offset, keyLen));
+            offset += keyLen;
+
+            const dtypeCode = view.getUint8(offset);
+            offset += 1;
+            const rank = view.getUint8(offset);
+            offset += 1;
+
+            const shape = [];
+            for (let dimIndex = 0; dimIndex < rank; dimIndex++) {
+                shape.push(view.getUint32(offset, true));
+                offset += 4;
+            }
+
+            const byteLength = view.getUint32(offset, true);
+            offset += 4;
+
+            let data;
+            if (dtypeCode === 0) {
+                data = new Float32Array(buffer.slice(offset, offset + byteLength));
+            } else if (dtypeCode === 1) {
+                data = new BigInt64Array(buffer.slice(offset, offset + byteLength));
+            } else if (dtypeCode === 2) {
+                data = new Uint8Array(buffer.slice(offset, offset + byteLength));
+            } else {
+                throw new Error(`Unsupported voices.bin dtype code: ${dtypeCode}`);
+            }
+            offset += byteLength;
+
+            tensors[key] = {
+                data,
+                shape,
+                dtype: dtypeCode === 0 ? "float32" : dtypeCode === 1 ? "int64" : "bool",
+            };
+        }
+
+        voices[name] = tensors;
+    }
+
+    return voices;
+}
+
+async function encodeVoiceAudio(audioData) {
+    const input = createTensor("float32", audioData, [1, 1, audioData.length]);
+    const outputs = await mimiEncoderSession.run({ audio: input });
+    const embeddings = outputs[mimiEncoderSession.outputNames[0]];
+
+    let dims = embeddings.dims.slice();
+    let data = new Float32Array(embeddings.data);
+    while (dims.length > 3) {
+        if (dims[0] !== 1) break;
+        dims = dims.slice(1);
+    }
+    if (dims.length < 3) {
+        dims = [1, dims[0], dims[1]];
+    }
+
+    return { data, shape: dims };
+}
+
+function prepareTextPrompt(text) {
+    let prompt = text.trim();
+    if (!prompt) {
+        return { text: "", framesAfterEos: 1 };
+    }
+
+    prompt = prompt.replace(/\r/g, " ").replace(/\n/g, " ").replace(/\s+/g, " ");
+    if (bundleMetadata.remove_semicolons) {
+        prompt = prompt.replace(/;/g, ",");
+    }
+
+    const wordCount = prompt.split(/\s+/).filter(Boolean).length;
+    let framesAfterEos = wordCount <= 4 ? 3 : 1;
+    if (bundleMetadata.model_recommended_frames_after_eos != null) {
+        framesAfterEos = Number(bundleMetadata.model_recommended_frames_after_eos);
+    }
+
+    if (prompt && !/[A-ZÀ-Þ]/.test(prompt[0])) {
+        prompt = prompt[0].toUpperCase() + prompt.slice(1);
+    }
+    if (prompt && /[0-9A-Za-zÀ-ÿ]/.test(prompt[prompt.length - 1])) {
+        prompt += ".";
+    }
+    if (bundleMetadata.pad_with_spaces_for_short_inputs && wordCount < 5) {
+        prompt = "        " + prompt;
+    }
+
+    return { text: prompt, framesAfterEos };
+}
+
+const SENTENCE_SPLIT_RE = /[^.!?]+[.!?]+|[^.!?]+$/g;
+
+function splitTextIntoSentences(text) {
+    const matches = text.match(SENTENCE_SPLIT_RE);
+    if (!matches) return [];
+    return matches.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+function splitTokenIdsIntoChunks(tokenIds, maxTokens) {
+    const chunks = [];
+    for (let i = 0; i < tokenIds.length; i += maxTokens) {
+        const chunkText = tokenizerProcessor.decodeIds(tokenIds.slice(i, i + maxTokens)).trim();
+        if (chunkText) {
+            chunks.push(chunkText);
+        }
+    }
+    return chunks;
+}
+
+function splitIntoBestSentences(text) {
+    const prepared = prepareTextPrompt(text);
+    if (!prepared.text) {
+        return { chunks: [], framesAfterEos: prepared.framesAfterEos };
+    }
+
+    const sentences = splitTextIntoSentences(prepared.text);
+    if (!sentences.length) {
+        return { chunks: [prepared.text], framesAfterEos: prepared.framesAfterEos };
+    }
+
+    const chunks = [];
+    let currentChunk = "";
+
+    for (const sentenceText of sentences) {
+        const sentenceTokenIds = tokenizerProcessor.encodeIds(sentenceText);
+        const sentenceTokens = sentenceTokenIds.length;
+
+        if (sentenceTokens > currentMaxTokenPerChunk) {
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+                currentChunk = "";
+            }
+            const splitChunks = splitTokenIdsIntoChunks(sentenceTokenIds, currentMaxTokenPerChunk);
+            for (const splitChunk of splitChunks) {
+                if (splitChunk) {
+                    chunks.push(splitChunk.trim());
+                }
+            }
+            continue;
+        }
+
+        if (!currentChunk) {
+            currentChunk = sentenceText;
+            continue;
+        }
+
+        const combined = `${currentChunk} ${sentenceText}`;
+        const combinedTokens = tokenizerProcessor.encodeIds(combined).length;
+        if (combinedTokens > currentMaxTokenPerChunk) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentenceText;
+        } else {
+            currentChunk = combined;
+        }
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return { chunks, framesAfterEos: prepared.framesAfterEos };
+}
+
+function precomputeFlowBuffers() {
+    stTensors = [];
+    const dt = 1.0 / LSD_STEPS;
+    for (let step = 0; step < LSD_STEPS; step++) {
+        const s = step / LSD_STEPS;
+        const t = s + dt;
+        stTensors.push({
+            s: createTensor("float32", new Float32Array([s]), [1, 1]),
+            t: createTensor("float32", new Float32Array([t]), [1, 1]),
+        });
+    }
+}
+
+async function loadOrt() {
+    if (ort) {
+        return;
+    }
+
+    postMessage({ type: "status", status: "Memuat ONNX Runtime…", state: "loading" });
+    const version = "1.20.0";
+    const cdnBase = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/`;
+    const ortModule = await import(`https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/ort.min.mjs`);
+    ort = ortModule.default || ortModule;
+    ort.env.wasm.wasmPaths = cdnBase;
+    ort.env.wasm.simd = true;
+    ort.env.wasm.numThreads = self.crossOriginIsolated
+        ? Math.min(navigator.hardwareConcurrency || 4, 8)
+        : 1;
+    precomputeFlowBuffers();
+}
+
+async function releaseSession(session) {
+    if (!session) {
+        return;
+    }
+    if (typeof session.release === "function") {
+        await session.release();
+    }
+}
+
+const SESSION_OPTIONS = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
+
+async function createSession(language, stem, label) {
+    const buf = await fetchCached(bundlePath(language, stem), label);
+    postMessage({ type: "status", status: `Menyiapkan ${label}…`, state: "loading" });
+    return ort.InferenceSession.create(new Uint8Array(buf), SESSION_OPTIONS);
+}
+
+async function ensureEncoder() {
+    if (mimiEncoderSession) return;
+    mimiEncoderSession = await createSession(currentLanguage, MODEL_STEMS.mimi_encoder, "mimi_encoder");
+}
+
+async function loadBundle(language) {
+    if (!LANGUAGE_BUNDLES.includes(language)) {
+        throw new Error(`Paket bahasa tidak dikenal: ${language}`);
+    }
+    await loadOrt();
+    isReady = false;
+    postMessage({ type: "status", status: `Memuat paket ${language}…`, state: "loading" });
+
+    const metaBuf = await fetchCached(bundlePath(language, "bundle.json"), "bundle.json");
+    bundleMetadata = JSON.parse(new TextDecoder().decode(metaBuf));
+    currentLanguage = language;
+    currentSampleRate = Number(bundleMetadata.sample_rate);
+    currentSamplesPerFrame = Number(bundleMetadata.samples_per_frame);
+    currentLatentDim = Number(bundleMetadata.latent_dim);
+    currentConditioningDim = Number(bundleMetadata.conditioning_dim);
+    currentMaxTokenPerChunk = Number(bundleMetadata.max_token_per_chunk || 50);
+
+    await Promise.all([
+        releaseSession(mimiEncoderSession),
+        releaseSession(textConditionerSession),
+        releaseSession(flowLmMainSession),
+        releaseSession(flowLmFlowSession),
+        releaseSession(mimiDecoderSession),
+    ]);
+    mimiEncoderSession = null; // dimuat saat dibutuhkan (kloning suara)
+
+    textConditionerSession = await createSession(language, MODEL_STEMS.text_conditioner, "text_conditioner");
+    flowLmMainSession = await createSession(language, MODEL_STEMS.flow_lm_main, "flow_lm_main");
+    flowLmFlowSession = await createSession(language, MODEL_STEMS.flow_lm_flow, "flow_lm_flow");
+    mimiDecoderSession = await createSession(language, MODEL_STEMS.mimi_decoder, "mimi_decoder");
+
+    const tokBuf = await fetchCached(bundlePath(language, bundleMetadata.tokenizer_file), "tokenizer");
+    const tokBytes = new Uint8Array(tokBuf);
+    let bin = "";
+    for (let i = 0; i < tokBytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, tokBytes.subarray(i, i + 0x8000));
+    }
+    tokenizerModelB64 = btoa(bin);
+    const spm = await loadSentencePiece();
+    tokenizerProcessor = new spm.SentencePieceProcessor();
+    await tokenizerProcessor.loadFromB64StringModel(tokenizerModelB64);
+
+    bosBeforeVoice = null;
+    if (bundleMetadata.bos_before_voice_file) {
+        try {
+            const bosBuf = await fetchCached(bundlePath(language, bundleMetadata.bos_before_voice_file), "bos");
+            bosBeforeVoice = parseNpyFloat32(bosBuf);
+        } catch (e) { console.warn("bos_before_voice gagal dimuat", e); }
+    }
+
+    predefinedVoiceRecords = {};
+    try {
+        const vBuf = await fetchCached(bundlePath(language, "voices.bin"), "voices.bin");
+        predefinedVoiceRecords = parseVoiceStatesBin(vBuf);
+    } catch (e) { console.warn("voices.bin gagal dimuat", e); }
+
+    voiceConditioningCache = new Map();
+    let defaultVoice = bundleMetadata.predefined_voices?.includes("alba") ? "alba" : null;
+    if (!defaultVoice) defaultVoice = Object.keys(predefinedVoiceRecords)[0] || null;
+    currentVoiceName = defaultVoice;
+    if (defaultVoice) {
+        await ensurePredefinedVoiceCached(defaultVoice, { force: true, statusText: `Menyiapkan suara (${defaultVoice})…` });
+    }
+
+    isReady = true;
+    postMessage({
+        type: "voices_loaded",
+        voices: Object.keys(predefinedVoiceRecords),
+        defaultVoice,
+        language,
+    });
+    postMessage({ type: "bundle_loaded", language, sampleRate: currentSampleRate });
+}
+
+self.onmessage = async (e) => {
+    const { type, data } = e.data;
+    try {
+        if (type === "load_bundle") {
+            if (isGenerating) throw new Error("Tidak bisa ganti paket saat sedang membuat suara.");
+            await loadBundle(data.language);
+            return;
+        }
+        if (type === "stop") {
+            isGenerating = false;
+            return;
+        }
+        if (!isReady) throw new Error("Model belum dimuat.");
+
+        if (type === "encode_voice") {
+            await ensureEncoder();
+            customVoiceEmbedding = await encodeVoiceAudio(data.audio);
+            voiceConditioningCache.delete("custom");
+            await ensureCustomVoiceCached({ force: true, statusText: "Menyiapkan suara sendiri…" });
+            postMessage({ type: "voice_encoded", voiceName: "custom" });
+            return;
+        }
+        if (type === "generate") {
+            if (isGenerating) return;
+            await startGeneration(data.text, data.voice || currentVoiceName);
+        }
+    } catch (err) {
+        console.error("Worker error:", err);
+        postMessage({ type: "error", error: (err && err.message) || String(err) });
+    }
+};
+
+async function startGeneration(text, voiceName) {
+    isGenerating = true;
+    postMessage({ type: "status", status: "Generating...", state: "running" });
+    postMessage({ type: "generation_started", data: { time: performance.now() } });
+
+    try {
+        const { chunks, framesAfterEos } = splitIntoBestSentences(text);
+        if (!chunks.length) {
+            throw new Error("No text to generate");
+        }
+
+        if (voiceName === "custom") {
+            await ensureCustomVoiceCached({ statusText: "Preparing custom voice..." });
+        } else {
+            await ensurePredefinedVoiceCached(voiceName, {
+                statusText: `Preparing voice (${voiceName})...`,
+            });
+        }
+        currentVoiceName = voiceName;
+
+        await runGenerationPipeline(voiceName, chunks, framesAfterEos);
+    } catch (err) {
+        console.error("Generation error:", err);
+        postMessage({ type: "error", error: err.toString() });
+    } finally {
+        if (isGenerating) {
+            postMessage({ type: "stream_ended" });
+            postMessage({ type: "status", status: "Finished", state: "idle" });
+        }
+        isGenerating = false;
+    }
+}
+
+async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
+    let mimiState = initStateFromManifest(bundleMetadata.mimi_state_manifest);
+    const emptySeq = createTensor("float32", new Float32Array(0), [1, 0, currentLatentDim]);
+    const emptyTextEmb = createTensor("float32", new Float32Array(0), [1, 0, currentConditioningDim]);
+    const baseFlowState = voiceConditioningCache.get(voiceName);
+    if (!baseFlowState) {
+        throw new Error(`Voice conditioning cache missing for '${voiceName}'.`);
+    }
+    let flowLmState = cloneState(baseFlowState);
+
+    const firstChunkFrames = 3;
+    const normalChunkFrames = 12;
+    const allGeneratedLatents = [];
+    let isFirstAudioChunk = true;
+    let totalFlowLmTime = 0;
+    let totalDecodeTime = 0;
+    const generationStart = performance.now();
+
+    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+        if (!isGenerating) break;
+
+        if (RESET_FLOW_STATE_EACH_CHUNK && chunkIdx > 0) {
+            flowLmState = cloneState(baseFlowState);
+        }
+        if (RESET_MIMI_STATE_EACH_CHUNK && chunkIdx > 0) {
+            mimiState = initStateFromManifest(bundleMetadata.mimi_state_manifest);
+        }
+
+        const chunkText = chunks[chunkIdx];
+        let isFirstAudioChunkOfTextChunk = true;
+        const tokenIds = tokenizerProcessor.encodeIds(chunkText);
+        const textInput = createTensor(
+            "int64",
+            BigInt64Array.from(tokenIds.map((token) => BigInt(token))),
+            [1, tokenIds.length]
+        );
+
+        let textEmb = (await textConditionerSession.run({ token_ids: textInput }))[textConditionerSession.outputNames[0]];
+        if (textEmb.dims.length === 2) {
+            textEmb = createTensor("float32", new Float32Array(textEmb.data), [1, textEmb.dims[0], textEmb.dims[1]]);
+        }
+
+        const condResult = await flowLmMainSession.run({
+            sequence: emptySeq,
+            text_embeddings: textEmb,
+            ...flowLmState,
+        });
+        updateStateFromManifestOutputs(flowLmState, condResult, bundleMetadata.flow_lm_state_manifest);
+
+        const chunkLatents = [];
+        let chunkDecodedFrames = 0;
+        let currentLatent = createTensor("float32", new Float32Array(currentLatentDim).fill(NaN), [1, 1, currentLatentDim]);
+        let eosStep = null;
+        let chunkEnded = false;
+        let chunkGenTimeMs = 0;
+
+        for (let step = 0; step < MAX_FRAMES; step++) {
+            if (!isGenerating) break;
+            if (step > 0 && step % 4 === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+
+            const stepStart = performance.now();
+            const arResult = await flowLmMainSession.run({
+                sequence: currentLatent,
+                text_embeddings: emptyTextEmb,
+                ...flowLmState,
+            });
+            const stepElapsed = performance.now() - stepStart;
+            chunkGenTimeMs += stepElapsed;
+            totalFlowLmTime += stepElapsed;
+
+            const conditioning = arResult.conditioning;
+            const eosLogit = arResult.eos_logit.data[0];
+            const isEos = eosLogit > -4.0;
+            if (isEos && eosStep == null) {
+                eosStep = step;
+            }
+            const shouldStop = eosStep != null && step >= eosStep + framesAfterEos;
+
+            const temperature = 0.7;
+            const std = Math.sqrt(temperature);
+            const latentData = new Float32Array(currentLatentDim);
+            for (let i = 0; i < currentLatentDim; i++) {
+                let u = 0;
+                let v = 0;
+                while (u === 0) u = Math.random();
+                while (v === 0) v = Math.random();
+                latentData[i] = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * std;
+            }
+
+            const dt = 1.0 / LSD_STEPS;
+            for (let lsdIndex = 0; lsdIndex < LSD_STEPS; lsdIndex++) {
+                const flowResult = await flowLmFlowSession.run({
+                    c: conditioning,
+                    s: stTensors[lsdIndex].s,
+                    t: stTensors[lsdIndex].t,
+                    x: createTensor("float32", latentData, [1, currentLatentDim]),
+                });
+                const flowDir = flowResult.flow_dir.data;
+                for (let i = 0; i < currentLatentDim; i++) {
+                    latentData[i] += flowDir[i] * dt;
+                }
+            }
+
+            chunkLatents.push(new Float32Array(latentData));
+            allGeneratedLatents.push(new Float32Array(latentData));
+            currentLatent = createTensor("float32", latentData, [1, 1, currentLatentDim]);
+            updateStateFromManifestOutputs(flowLmState, arResult, bundleMetadata.flow_lm_state_manifest);
+
+            const pending = chunkLatents.length - chunkDecodedFrames;
+            let decodeSize = 0;
+            if (shouldStop) {
+                decodeSize = pending;
+            } else if (isFirstAudioChunk && pending >= firstChunkFrames) {
+                decodeSize = firstChunkFrames;
+            } else if (pending >= normalChunkFrames) {
+                decodeSize = normalChunkFrames;
+            }
+
+            if (decodeSize > 0) {
+                const decodeLatents = new Float32Array(decodeSize * currentLatentDim);
+                for (let frame = 0; frame < decodeSize; frame++) {
+                    decodeLatents.set(chunkLatents[chunkDecodedFrames + frame], frame * currentLatentDim);
+                }
+
+                const decoderStart = performance.now();
+                const decodeResult = await mimiDecoderSession.run({
+                    latent: createTensor("float32", decodeLatents, [1, decodeSize, currentLatentDim]),
+                    ...mimiState,
+                });
+                const decoderElapsed = performance.now() - decoderStart;
+                chunkGenTimeMs += decoderElapsed;
+                totalDecodeTime += decoderElapsed;
+
+                for (const entry of bundleMetadata.mimi_state_manifest) {
+                    mimiState[entry.input_name] = decodeResult[entry.output_name];
+                }
+
+                chunkDecodedFrames += decodeSize;
+                const audioFloat32 = new Float32Array(decodeResult[mimiDecoderSession.outputNames[0]].data);
+                const isLastChunk = shouldStop && chunkIdx === chunks.length - 1;
+
+                postMessage({
+                    type: "audio_chunk",
+                    data: audioFloat32,
+                    metrics: {
+                        bbTime: 0,
+                        decTime: 0,
+                        chunkDuration: audioFloat32.length / currentSampleRate,
+                        genTimeSec: chunkGenTimeMs / 1000,
+                        isFirst: isFirstAudioChunk,
+                        isLast: isLastChunk,
+                        chunkStart: isFirstAudioChunkOfTextChunk,
+                    },
+                }, [audioFloat32.buffer]);
+
+                isFirstAudioChunk = false;
+                isFirstAudioChunkOfTextChunk = false;
+                chunkGenTimeMs = 0;
+            }
+
+            if (shouldStop) {
+                chunkEnded = true;
+                break;
+            }
+        }
+
+        if (chunkEnded && isGenerating && chunkIdx < chunks.length - 1) {
+            const gapSamples = Math.max(1, Math.floor(CHUNK_GAP_SEC * currentSampleRate));
+            const silence = new Float32Array(gapSamples);
+            postMessage({
+                type: "audio_chunk",
+                data: silence,
+                metrics: {
+                    bbTime: 0,
+                    decTime: 0,
+                    chunkDuration: gapSamples / currentSampleRate,
+                    isFirst: false,
+                    isLast: false,
+                    isSilence: true,
+                },
+            }, [silence.buffer]);
+        }
+    }
+
+    const totalTime = (performance.now() - generationStart) / 1000;
+    const audioSeconds = allGeneratedLatents.length * currentSamplesPerFrame / currentSampleRate;
+    const genTime = (totalFlowLmTime + totalDecodeTime) / 1000;
+    const rtfx = genTime > 0 ? audioSeconds / genTime : 0;
+
+    debugLog(`Generation complete for ${voiceName} in ${totalTime.toFixed(2)}s (RTFx ${rtfx.toFixed(2)}x)`);
+    postMessage({
+        type: "status",
+        status: `Finished (RTFx: ${rtfx.toFixed(2)}x)`,
+        state: "idle",
+        metrics: { rtfx, genTime, totalTime, audioDuration: audioSeconds },
+    });
+}
+
+</script>
+<script type="module">
+/* ================= Fungsi murni (diuji terpisah) ================= */
+// <pure>
+const LANGS = [
+  ["id","Indonesia"],["en","Inggris"],["na","Otomatis / netral"],["ar","Arab"],["bg","Bulgaria"],["hr","Kroasia"],
+  ["cs","Ceko"],["da","Denmark"],["nl","Belanda"],["et","Estonia"],["fi","Finlandia"],["fr","Prancis"],
+  ["de","Jerman"],["el","Yunani"],["hi","Hindi"],["hu","Hungaria"],["it","Italia"],["ja","Jepang"],
+  ["ko","Korea"],["lv","Latvia"],["lt","Lituania"],["pl","Polandia"],["pt","Portugis"],["ro","Rumania"],
+  ["ru","Rusia"],["sk","Slovakia"],["sl","Slovenia"],["es","Spanyol"],["sv","Swedia"],["tr","Turki"],
+  ["uk","Ukraina"],["vi","Vietnam"]
+];
+
+function preprocessText(text, lang) {
+  let t = String(text).normalize("NFKD");
+  t = t.replace(/[\p{Extended_Pictographic}\u{1F3FB}-\u{1F3FF}\uFE0F\u200D]/gu, "");
+  const map = {
+    "–":"-","‑":"-","—":"-","¯":" ","_":" ","“":'"',"”":'"',"‘":"'","’":"'",
+    "´":"'","`":"'","[":" ","]":" ","|":" ","/":" ","#":" ","→":" ","←":" "
+  };
+  t = t.replace(/[–‑—¯_“”‘’´`\[\]|\/#→←]/g, c => map[c]);
+  t = t.replace(/[♥☆♡©\\]/g, "");
+  if (lang === "en") {
+    t = t.replace(/@/g, " at ").replace(/\be\.g\.,/gi, "for example,").replace(/\bi\.e\.,/gi, "that is,");
+  }
+  t = t.replace(/\s+([,.!?;:])/g, "$1");
+  t = t.replace(/\s+/g, " ").trim();
+  if (!t) return "";
+  if (!/[.!?;:,'")\]}…。」』】〉》›»]$/.test(t)) t += ".";
+  return `<${lang}>${t}</${lang}>`;
+}
+
+function splitIntoChunks(text, maxLen = 280) {
+  const clean = String(text).replace(/\r/g, "").trim();
+  if (!clean) return [];
+  const sentences = [];
+  for (const para of clean.split(/\n+/)) {
+    for (const s of para.split(/(?<=[.!?。！？]["')\]]*)\s+/)) {
+      const st = s.trim();
+      if (st) sentences.push(st);
+    }
+  }
+  const chunks = [];
+  let cur = "";
+  const flush = () => { if (cur) { chunks.push(cur); cur = ""; } };
+  for (const s of sentences) {
+    if (s.length > maxLen) {
+      flush();
+      let rest = s;
+      while (rest.length > maxLen) {
+        let cut = Math.max(rest.lastIndexOf(", ", maxLen), rest.lastIndexOf(" ", maxLen));
+        if (cut < maxLen * 0.4) cut = maxLen;
+        chunks.push(rest.slice(0, cut + 1).trim());
+        rest = rest.slice(cut + 1).trim();
+      }
+      cur = rest;
+      continue;
+    }
+    if (cur && (cur + " " + s).length > maxLen) flush();
+    cur = cur ? cur + " " + s : s;
+  }
+  flush();
+  return chunks.filter(Boolean);
+}
+
+function textToIds(text, indexer) {
+  const ids = [];
+  for (const ch of text) {
+    const cp = ch.codePointAt(0);
+    const v = Array.isArray(indexer) ? indexer[cp] : indexer[String(cp)];
+    if (typeof v === "number" && v >= 0) ids.push(v);
+  }
+  return ids;
+}
+
+function gaussian() {
+  let u = 0, v = 0;
+  while (u === 0) u = Math.random();
+  while (v === 0) v = Math.random();
+  return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
+}
+
+function concatAudio(parts, sampleRate, gapSec = 0.25) {
+  const gap = Math.floor(sampleRate * gapSec);
+  let total = 0;
+  parts.forEach((p, i) => { total += p.length + (i < parts.length - 1 ? gap : 0); });
+  const out = new Float32Array(total);
+  let o = 0;
+  parts.forEach((p, i) => {
+    out.set(p, o);
+    o += p.length + (i < parts.length - 1 ? gap : 0);
+  });
+  return out;
+}
+
+function floatToWav(samples, sampleRate) {
+  const buf = new ArrayBuffer(44 + samples.length * 2);
+  const v = new DataView(buf);
+  const w = (off, s) => { for (let i = 0; i < s.length; i++) v.setUint8(off + i, s.charCodeAt(i)); };
+  w(0, "RIFF"); v.setUint32(4, 36 + samples.length * 2, true); w(8, "WAVE");
+  w(12, "fmt "); v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
+  v.setUint32(24, sampleRate, true); v.setUint32(28, sampleRate * 2, true);
+  v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, "data"); v.setUint32(40, samples.length * 2, true);
+  for (let i = 0; i < samples.length; i++) {
+    const s = Math.max(-1, Math.min(1, samples[i]));
+    v.setInt16(44 + i * 2, s < 0 ? s * 0x8000 : s * 0x7fff, true);
+  }
+  return new Uint8Array(buf);
+}
+
+function parseWav(arrayBuffer) {
+  const v = new DataView(arrayBuffer);
+  if (v.byteLength < 44) return null;
+  const tag = o => String.fromCharCode(v.getUint8(o), v.getUint8(o + 1), v.getUint8(o + 2), v.getUint8(o + 3));
+  if (tag(0) !== "RIFF" || tag(8) !== "WAVE") return null;
+  let off = 12, fmt = null, dataOff = -1, dataLen = 0;
+  while (off + 8 <= v.byteLength) {
+    const id = tag(off);
+    let size = v.getUint32(off + 4, true);
+    const body = off + 8;
+    if (id === "fmt ") {
+      fmt = {
+        format: v.getUint16(body, true),
+        channels: v.getUint16(body + 2, true),
+        sampleRate: v.getUint32(body + 4, true),
+        bits: v.getUint16(body + 14, true)
+      };
+    } else if (id === "data") {
+      // Header streaming kadang bernilai 0 atau 0xFFFFFFFF: anggap data sampai akhir file.
+      if (size === 0 || size === 0xffffffff || body + size > v.byteLength) size = v.byteLength - body;
+      dataOff = body;
+      dataLen = size;
+      break;
+    }
+    off = body + size + (size & 1);
+  }
+  if (!fmt || dataOff < 0 || !fmt.channels) return null;
+  const bytes = fmt.bits / 8;
+  const frames = Math.floor(dataLen / (bytes * fmt.channels));
+  const out = new Float32Array(frames);
+  for (let i = 0; i < frames; i++) {
+    const pos = dataOff + i * bytes * fmt.channels; // hanya kanal pertama
+    if (fmt.format === 1 && fmt.bits === 16) out[i] = v.getInt16(pos, true) / 32768;
+    else if (fmt.format === 3 && fmt.bits === 32) out[i] = v.getFloat32(pos, true);
+    else return null;
+  }
+  return { samples: out, sampleRate: fmt.sampleRate };
+}
+
+function piperLang(key) {
+  return String(key).split("_")[0].toLowerCase();
+}
+
+function piperLabel(key) {
+  const m = String(key).match(/^([a-z]{2,3}_[A-Z]{2})-(.+)-(x_low|low|medium|high)$/);
+  return m ? `${m[2].replace(/_/g, " ")} · ${m[1]} · ${m[3]}` : String(key);
+}
+const PIPER_KEY_RE = /^[a-z]{2,3}_[A-Z]{2}-.+-(x_low|low|medium|high)$/;
+
+// Library bisa mengembalikan objek berkunci ID suara, atau array berisi info suara.
+function normalizeVoices(raw) {
+  const out = {};
+  if (!raw || typeof raw !== "object") return out;
+  const entries = Array.isArray(raw) ? raw.map(x => [null, x]) : Object.entries(raw);
+  for (const [k, info] of entries) {
+    let key = null;
+    if (typeof info === "string") key = info;
+    else if (info && typeof info === "object") {
+      key = info.key || info.voiceId || info.id || null;
+      if (!key && info.language && info.language.code && info.name && info.quality) {
+        key = `${info.language.code}-${info.name}-${info.quality}`; // konvensi ID suara Piper
+      }
+    }
+    if (!key && typeof k === "string" && !/^\d+$/.test(k)) key = k;
+    if (!key || !PIPER_KEY_RE.test(key)) continue;
+    out[key] = info && typeof info === "object" ? info : {};
+  }
+  return out;
+}
+// </pure>
+
+/* ================= Konfigurasi ================= */
+const ORT_VERSION = "1.22.0";
+const ORT_BASE = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${ORT_VERSION}/dist/`;
+const CACHE_NAME = "supertonic3-assets-v1";
+
+const MODELS = {
+  official: {
+    base: "https://huggingface.co/Supertone/supertonic-3/resolve/main/",
+    forceWasm: false,
+    approx: { duration_predictor: 3.7e6, text_encoder: 36.4e6, vector_estimator: 257e6, vocoder: 101e6 }
+  },
+  int8: {
+    base: "https://huggingface.co/safwan-o/supertonic-3-int8/resolve/main/",
+    forceWasm: true,
+    approx: { duration_predictor: 3.7e6, text_encoder: 16.3e6, vector_estimator: 65.6e6, vocoder: 25.7e6 }
+  },
+  archive: {
+    base: "https://huggingface.co/supertone-oss-archive/supertonic-3/resolve/main/",
+    forceWasm: false,
+    approx: { duration_predictor: 3.7e6, text_encoder: 36.4e6, vector_estimator: 257e6, vocoder: 101e6 }
+  }
+};
+
+/* ================= UI ================= */
+const $ = id => document.getElementById(id);
+const el = {
+  form: $("form"), text: $("text"), lang: $("lang"), voice: $("voice"),
+  speed: $("speed"), speedOut: $("speedOut"), steps: $("steps"), stepsOut: $("stepsOut"),
+  model: $("model"), backend: $("backend"), go: $("go"), dl: $("dl"),
+  panel: $("panel"), status: $("status"), bar: $("bar"), player: $("player"),
+  engine: $("engine"), voiceField: $("voiceField"), piperPanel: $("piperPanel"),
+  piperLangSel: $("piperLangSel"), piperSearch: $("piperSearch"), piperList: $("piperList"),
+  piperInfo: $("piperInfo"), piperReload: $("piperReload"),
+  supParams: $("supParams"), supAdvanced: $("supAdvanced"),
+  pocketPanel: $("pocketPanel"), pocketVoice: $("pocketVoice"),
+  pocketCloneField: $("pocketCloneField"), pocketFile: $("pocketFile")
+};
+
+let lastLang = "id";
+function fillLangs(codes, selected) {
+  el.lang.innerHTML = "";
+  for (const [code, name] of LANGS) {
+    if (codes && !codes.includes(code)) continue;
+    const o = document.createElement("option");
+    o.value = code;
+    o.textContent = `${name} (${code})`;
+    el.lang.appendChild(o);
+  }
+  const has = [...el.lang.options].some(o => o.value === selected);
+  el.lang.value = has ? selected : el.lang.options[0].value;
+}
+fillLangs(null, lastLang);
+el.speed.addEventListener("input", () => { el.speedOut.textContent = Number(el.speed.value).toFixed(2) + "×"; });
+el.steps.addEventListener("input", () => { el.stepsOut.textContent = el.steps.value; });
+el.text.addEventListener("keydown", e => {
+  if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) { e.preventDefault(); el.form.requestSubmit(); }
+});
+
+function setStatus(msg, kind = "") {
+  el.panel.hidden = false;
+  el.status.textContent = msg;
+  el.status.className = kind;
+}
+function setProgress(frac) {
+  if (frac == null) { el.bar.hidden = true; return; }
+  el.bar.hidden = false;
+  el.bar.value = Math.max(0, Math.min(1, frac));
+}
+
+/* ================= Unduh + cache ================= */
+const cacheInfo = { hits: 0, stored: 0, failed: 0, unavailable: false, error: "" };
+
+async function fetchBytes(url, onBytes) {
+  let cache = null;
+  try {
+    if (typeof caches === "undefined") throw new Error("Cache API tidak tersedia, situs perlu HTTPS");
+    cache = await caches.open(CACHE_NAME);
+    const hit = await cache.match(url);
+    if (hit) {
+      const b = new Uint8Array(await hit.arrayBuffer());
+      cacheInfo.hits++;
+      onBytes(b.length, true);
+      return b;
+    }
+  } catch (e) {
+    cache = null;
+    cacheInfo.unavailable = true;
+    cacheInfo.error = (e && e.message) || String(e);
+  }
+
+  const res = await fetch(url, { mode: "cors" });
+  if (!res.ok) throw new Error(`Gagal mengunduh ${url} (HTTP ${res.status})`);
+  const reader = res.body.getReader();
+  const chunks = [];
+  let got = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    chunks.push(value);
+    got += value.length;
+    onBytes(value.length, false);
+  }
+  const out = new Uint8Array(got);
+  let o = 0;
+  for (const c of chunks) { out.set(c, o); o += c.length; }
+  try {
+    if (cache) {
+      await cache.put(url, new Response(out, { headers: { "content-type": "application/octet-stream" } }));
+      cacheInfo.stored++;
+    }
+  } catch (e) {
+    cacheInfo.failed++;
+    cacheInfo.error = (e && e.message) || String(e);
+  }
+  return out;
+}
+
+/* ================= Memuat model ================= */
+let ort = null;
+let engine = null;          // { key, providers, sessions, cfg, indexer }
+const debug = [];           // info teknis per potongan teks (untuk diagnosis)
+const styleCache = new Map();
+
+async function loadOrt() {
+  if (ort) return ort;
+  ort = await import(`${ORT_BASE}ort.webgpu.min.mjs`);
+  ort.env.wasm.wasmPaths = ORT_BASE;
+  ort.env.wasm.numThreads = self.crossOriginIsolated ? Math.min(4, navigator.hardwareConcurrency || 2) : 1;
+  return ort;
+}
+
+function chooseProviders(modelKey, backendPref) {
+  if (MODELS[modelKey].forceWasm || backendPref === "wasm" || !("gpu" in navigator)) return ["wasm"];
+  return ["webgpu", "wasm"];
+}
+
+async function loadEngine(modelKey, providers) {
+  const key = modelKey + "|" + providers.join(",");
+  if (engine && engine.key === key) return engine;
+  engine = null;
+  styleCache.clear();
+  Object.assign(cacheInfo, { hits: 0, stored: 0, failed: 0, unavailable: false, error: "" });
+  // Minta penyimpanan persisten agar browser tidak menghapus cache model saat ruang menipis.
+  try { navigator.storage?.persist?.().catch(() => {}); } catch { /* abaikan */ }
+
+  await loadOrt();
+  const m = MODELS[modelKey];
+  const names = ["duration_predictor", "text_encoder", "vector_estimator", "vocoder"];
+  const expected = names.reduce((s, n) => s + m.approx[n], 0) + 0.6e6;
+  let received = 0;
+  const onBytes = (n) => {
+    received += n;
+    setProgress(received / expected);
+    setStatus(`Mengunduh model… ${(received / 1e6).toFixed(0)} / ±${(expected / 1e6).toFixed(0)} MB`);
+  };
+
+  const [cfgBytes, idxBytes] = await Promise.all([
+    fetchBytes(m.base + "onnx/tts.json", onBytes),
+    fetchBytes(m.base + "onnx/unicode_indexer.json", onBytes)
+  ]);
+  const dec = new TextDecoder();
+  const rawCfg = JSON.parse(dec.decode(cfgBytes));
+  const indexer = JSON.parse(dec.decode(idxBytes));
+  const cfg = {
+    sampleRate: rawCfg?.ae?.sample_rate ?? 44100,
+    baseChunk: rawCfg?.ae?.base_chunk_size ?? 512,
+    compress: rawCfg?.ttl?.chunk_compress_factor ?? 6,
+    latentDim: rawCfg?.ttl?.latent_dim ?? 24
+  };
+
+  const sessions = {};
+  for (const n of names) {
+    const bytes = await fetchBytes(`${m.base}onnx/${n}.onnx`, onBytes);
+    setStatus(`Menyiapkan ${n.replace("_", " ")}…`);
+    sessions[n] = await ort.InferenceSession.create(bytes, {
+      executionProviders: providers,
+      graphOptimizationLevel: "all"
+    });
+  }
+  setProgress(null);
+  let cacheNote = "";
+  if (cacheInfo.unavailable || cacheInfo.failed) {
+    cacheNote = `Model tidak tersimpan di cache browser (${cacheInfo.error}), jadi akan diunduh ulang setiap kunjungan.`;
+  } else if (cacheInfo.stored) {
+    cacheNote = "Model disimpan di cache browser, kunjungan berikutnya tidak perlu mengunduh lagi.";
+  } else if (cacheInfo.hits) {
+    cacheNote = "Model dimuat dari cache browser.";
+  }
+  engine = { key, providers, sessions, cfg, indexer, modelKey, cacheNote };
+  return engine;
+}
+
+async function loadStyle(modelKey, voice) {
+  const k = modelKey + "|" + voice;
+  if (styleCache.has(k)) return styleCache.get(k);
+  const bytes = await fetchBytes(`${MODELS[modelKey].base}voice_styles/${voice}.json`, () => {});
+  const j = JSON.parse(new TextDecoder().decode(bytes));
+  const mk = o => {
+    if (!o || !o.data || !o.dims) throw new Error("Format file suara tidak dikenali.");
+    return new ort.Tensor("float32", Float32Array.from(o.data.flat(Infinity)), o.dims);
+  };
+  const style = { ttl: mk(j.style_ttl), dp: mk(j.style_dp) };
+  styleCache.set(k, style);
+  return style;
+}
+
+/* ================= Inferensi ================= */
+async function run(session, provided) {
+  const feeds = {};
+  for (const name of session.inputNames) {
+    if (!(name in provided)) {
+      throw new Error(`Input model "${name}" tidak dikenali (input tersedia: ${session.inputNames.join(", ")}). Format model mungkin berbeda dari yang diperkirakan.`);
+    }
+    feeds[name] = provided[name];
+  }
+  return session.run(feeds);
+}
+
+async function synthChunk(E, style, rawText, lang, steps, speed) {
+  const { sessions: S, cfg, indexer } = E;
+  const processed = preprocessText(rawText, lang);
+  if (!processed) return new Float32Array(0);
+  const ids = textToIds(processed, indexer);
+  const T = ids.length;
+  if (!T) return new Float32Array(0);
+
+  const textIds = new ort.Tensor("int64", BigInt64Array.from(ids, x => BigInt(x)), [1, T]);
+  const textMask = new ort.Tensor("float32", new Float32Array(T).fill(1), [1, 1, T]);
+
+  const dpOut = await run(S.duration_predictor, { text_ids: textIds, style_dp: style.dp, text_mask: textMask });
+  const duration = Math.max(0.1, Number(dpOut[S.duration_predictor.outputNames[0]].data[0]) / speed);
+  debug.push({ chars: rawText.length, tokens: T, duration: Number(duration.toFixed(2)), speed });
+
+  const encOut = await run(S.text_encoder, { text_ids: textIds, style_ttl: style.ttl, text_mask: textMask });
+  const textEmb = encOut[S.text_encoder.outputNames[0]];
+
+  const C = cfg.latentDim * cfg.compress;
+  const L = Math.max(1, Math.ceil((duration * cfg.sampleRate) / (cfg.baseChunk * cfg.compress)));
+  const noise = new Float32Array(C * L);
+  for (let i = 0; i < noise.length; i++) noise[i] = gaussian();
+  let latent = new ort.Tensor("float32", noise, [1, C, L]);
+  const latentMask = new ort.Tensor("float32", new Float32Array(L).fill(1), [1, 1, L]);
+  const totalStep = new ort.Tensor("float32", Float32Array.of(steps), [1]);
+
+  for (let s = 0; s < steps; s++) {
+    const out = await run(S.vector_estimator, {
+      noisy_latent: latent,
+      text_emb: textEmb,
+      style_ttl: style.ttl,
+      latent_mask: latentMask,
+      text_mask: textMask,
+      current_step: new ort.Tensor("float32", Float32Array.of(s), [1]),
+      total_step: totalStep
+    });
+    latent = out[S.vector_estimator.outputNames[0]];
+  }
+
+  const voc = S.vocoder;
+  const vocFeeds = voc.inputNames.length === 1 ? { [voc.inputNames[0]]: latent } : { latent };
+  const vOut = await run(voc, vocFeeds);
+  const wav = vOut[voc.outputNames[0]].data;
+  const n = Math.min(wav.length, Math.floor(cfg.sampleRate * duration));
+  return Float32Array.from(wav.subarray(0, n));
+}
+
+/* ================= Piper (WebAssembly) ================= */
+// Library Piper memuat file WASM dari alamat tetap onnxruntime-web 1.18.0 di cdnjs. Kalau JS runtime yang
+// ikut terbundel lebih baru dari itu, nama file glue (.mjs) tidak cocok dan pemuatan gagal. Karena itu
+// sumber pertama mengunci onnxruntime-web ke 1.18.0; dua lainnya jadi cadangan.
+const PIPER_LIBS = [
+  "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5?deps=onnxruntime-web@1.18.0",
+  "https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5",
+  "https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.5/+esm"
+];
+let piperLibIdx = 0;
+const PIPER_FALLBACK = ["id_ID-news_tts-medium", "en_US-lessac-medium", "en_US-hfc_female-medium"];
+const PIPER_DEFAULT = "id_ID-news_tts-medium";
+let piperLib = null;
+let piperVoices = null;          // { voiceId: info } dari library; null bila belum/gagal dimuat
+let piperInstalled = new Set();  // voiceId yang sudah tersimpan di browser
+let piperSelected = null;
+let piperLoadError = "";
+let piperPreferredMissing = false;
+
+async function loadPiper() {
+  if (piperLib) return piperLib;
+  let lastErr;
+  for (; piperLibIdx < PIPER_LIBS.length; piperLibIdx++) {
+    try {
+      piperLib = await import(PIPER_LIBS[piperLibIdx]);
+      return piperLib;
+    } catch (e) {
+      lastErr = e;
+      console.warn("Gagal memuat library Piper dari", PIPER_LIBS[piperLibIdx], e);
+    }
+  }
+  piperLibIdx = 0;
+  throw lastErr || new Error("library Piper tidak bisa dimuat");
+}
+
+function piperKeys() { return piperVoices ? Object.keys(piperVoices) : PIPER_FALLBACK; }
+
+function piperFamily(key) {
+  const info = piperVoices && piperVoices[key];
+  const f = info && info.language && info.language.family;
+  return (f ? String(f) : piperLang(key)).toLowerCase();
+}
+
+function langName(code) {
+  const hit = LANGS.find(l => l[0] === code);
+  return hit ? hit[1] : code;
+}
+
+async function refreshInstalled() {
+  try {
+    const lib = await loadPiper();
+    piperInstalled = new Set(await lib.stored());
+  } catch (e) { console.warn("Gagal membaca suara terpasang:", e); }
+}
+
+function renderPiperLangOptions(preferred) {
+  const counts = new Map();
+  for (const k of piperKeys()) {
+    const f = piperFamily(k);
+    counts.set(f, (counts.get(f) || 0) + 1);
+  }
+  const fams = [...counts.keys()].sort((a, b) => langName(a).localeCompare(langName(b)));
+  el.piperLangSel.innerHTML = "";
+  el.piperLangSel.appendChild(new Option(`Semua bahasa (${piperKeys().length})`, "*"));
+  for (const f of fams) el.piperLangSel.appendChild(new Option(`${langName(f)} (${f}) · ${counts.get(f)}`, f));
+  piperPreferredMissing = !!piperVoices && preferred !== "na" && !counts.has(preferred);
+  el.piperLangSel.value = counts.has(preferred) ? preferred : "*";
+}
+
+function renderPiperList() {
+  const fam = el.piperLangSel.value || "*";
+  const q = el.piperSearch.value.trim().toLowerCase();
+  const all = piperKeys();
+  const keys = all.filter(k => (fam === "*" || piperFamily(k) === fam) && (!q || k.toLowerCase().includes(q))).sort();
+  if (!piperSelected || !all.includes(piperSelected)) {
+    piperSelected = all.includes(PIPER_DEFAULT) ? PIPER_DEFAULT : null;
+  }
+
+  el.piperList.innerHTML = "";
+  for (const k of keys) {
+    const installed = piperInstalled.has(k);
+    const row = document.createElement("div");
+    row.className = "vrow";
+
+    const pick = document.createElement("label");
+    pick.className = "vpick";
+    const radio = document.createElement("input");
+    radio.type = "radio";
+    radio.name = "pv";
+    radio.value = k;
+    radio.checked = k === piperSelected;
+    radio.addEventListener("change", () => { piperSelected = k; });
+    const name = document.createElement("span");
+    name.className = "vname";
+    name.textContent = piperLabel(k);
+    const id = document.createElement("span");
+    id.className = "vid";
+    id.textContent = k;
+    pick.append(radio, name, id);
+
+    const state = document.createElement("span");
+    state.className = "vstate" + (installed ? " ok" : "");
+    state.textContent = installed ? "Terpasang" : "Belum diunduh";
+
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "small";
+    btn.textContent = installed ? "Hapus" : "Unduh";
+    btn.addEventListener("click", () => (installed ? removePiperVoice(k, btn) : downloadPiperVoice(k, btn, state)));
+
+    row.append(pick, state, btn);
+    el.piperList.appendChild(row);
+  }
+
+  let info = `Menampilkan ${keys.length} dari ${all.length} suara.`;
+  if (!piperVoices) info += " Daftar bawaan, daftar lengkap belum dimuat.";
+  if (piperPreferredMissing) info += ` Tidak ada suara untuk bahasa "${el.lang.value}" di daftar library, jadi semua bahasa ditampilkan.`;
+  if (!keys.length) info += " Tidak ada yang cocok dengan filter.";
+  el.piperInfo.textContent = info;
+}
+
+async function downloadPiperVoice(id, btn, state) {
+  btn.disabled = true;
+  state.className = "vstate";
+  state.textContent = "Mengunduh…";
+  try {
+    const lib = await loadPiper();
+    await lib.download(id, p => {
+      if (p && p.total) state.textContent = `Mengunduh ${Math.round((p.loaded * 100) / p.total)}%`;
+    });
+    piperSelected = id;
+    await refreshInstalled();
+    setStatus(`Suara ${piperLabel(id)} terpasang di browser.`, "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Gagal mengunduh suara: " + ((e && e.message) || e), "error");
+  } finally {
+    renderPiperList();
+  }
+}
+
+async function removePiperVoice(id, btn) {
+  btn.disabled = true;
+  try {
+    const lib = await loadPiper();
+    await lib.remove(id);
+    await refreshInstalled();
+    setStatus(`Suara ${piperLabel(id)} dihapus dari browser.`, "ok");
+  } catch (e) {
+    console.error(e);
+    setStatus("Gagal menghapus suara: " + ((e && e.message) || e), "error");
+  } finally {
+    renderPiperList();
+  }
+}
+
+async function ensurePiperVoices(force = false) {
+  if (piperVoices && !force) return;
+  setStatus("Memuat daftar suara Piper…");
+  try {
+    const lib = await loadPiper();
+    const raw = await lib.voices();
+    if (!raw || typeof raw !== "object") throw new Error("daftar suara kosong");
+    const v = normalizeVoices(raw);
+    if (!Object.keys(v).length) {
+      console.log("[piper] bentuk data voices():", raw);
+      throw new Error("format daftar suara tidak dikenali");
+    }
+    piperVoices = v;
+    piperLoadError = "";
+    await refreshInstalled();
+    console.log("[piper] suara tersedia:", Object.keys(v));
+    renderPiperLangOptions(el.lang.value);
+    renderPiperList();
+    setStatus(`Daftar suara Piper dimuat (${Object.keys(v).length} suara).`, "ok");
+  } catch (e) {
+    console.warn("Gagal memuat daftar suara Piper:", e);
+    piperLoadError = (e && e.message) || String(e);
+    renderPiperLangOptions(el.lang.value);
+    renderPiperList();
+    setStatus(`Daftar suara Piper gagal dimuat (${piperLoadError}). Menampilkan daftar bawaan; klik "Muat ulang daftar" untuk mencoba lagi.`, "error");
+  }
+}
+
+async function wavFromBlob(blob) {
+  const buf = await blob.arrayBuffer();
+  const parsed = parseWav(buf);
+  if (parsed) return parsed;
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  try {
+    const a = await ctx.decodeAudioData(buf.slice(0));
+    return { samples: Float32Array.from(a.getChannelData(0)), sampleRate: a.sampleRate };
+  } finally {
+    if (ctx.close) ctx.close();
+  }
+}
+
+async function synthPiper(chunks) {
+  for (;;) {
+    try {
+      return await synthPiperOnce(chunks);
+    } catch (e) {
+      const msg = String((e && e.message) || e);
+      if (/backend|dynamically imported|wasm/i.test(msg) && piperLibIdx < PIPER_LIBS.length - 1) {
+        console.warn("Piper gagal dengan sumber library ini, mencoba sumber lain:", e);
+        piperLibIdx++;
+        piperLib = null;
+        setStatus("Mencoba sumber library Piper lain…");
+        continue;
+      }
+      throw e;
+    }
+  }
+}
+
+async function synthPiperOnce(chunks) {
+  const voiceId = piperSelected;
+  if (!voiceId) throw new Error("Pilih satu suara Piper dari daftar dulu.");
+  const lib = await loadPiper();
+  const parts = [];
+  let sr = 0;
+  for (let i = 0; i < chunks.length; i++) {
+    setStatus(`Membuat suara (Piper)… bagian ${i + 1} dari ${chunks.length}`);
+    setProgress(i / chunks.length);
+    const blob = await lib.predict({ text: chunks[i], voiceId }, p => {
+      if (p && p.total) {
+        setProgress(p.loaded / p.total);
+        setStatus(`Mengunduh suara Piper… ${(p.loaded / 1e6).toFixed(0)} / ${(p.total / 1e6).toFixed(0)} MB`);
+      }
+    });
+    const wav = await wavFromBlob(blob);
+    if (sr && wav.sampleRate !== sr) throw new Error("Sample rate antar potongan berbeda.");
+    sr = wav.sampleRate;
+    parts.push(wav.samples);
+    await new Promise(r => setTimeout(r, 0));
+  }
+  await refreshInstalled();
+  renderPiperList();
+  return { parts, sr, label: "Piper, WASM", suspicious: false, note: "" };
+}
+
+/* ================= Supertonic: satu sesi sintesis ================= */
+async function synthSupertonic(chunks) {
+  const lang = el.lang.value;
+  const voice = el.voice.value;
+  const modelKey = el.model.value;
+  const steps = Number(el.steps.value);
+  const speed = Number(el.speed.value);
+
+  let providers = chooseProviders(modelKey, el.backend.value);
+  let parts;
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const E = await loadEngine(modelKey, providers);
+      const style = await loadStyle(modelKey, voice);
+      parts = [];
+      debug.length = 0;
+      for (let i = 0; i < chunks.length; i++) {
+        setStatus(`Membuat suara… bagian ${i + 1} dari ${chunks.length}`);
+        setProgress(i / chunks.length);
+        parts.push(await synthChunk(E, style, chunks[i], lang, steps, speed));
+        await new Promise(r => setTimeout(r, 0)); // beri napas ke UI
+      }
+      break;
+    } catch (err) {
+      if (attempt === 0 && providers[0] === "webgpu") {
+        console.warn("WebGPU gagal, mencoba WASM:", err);
+        setStatus("WebGPU bermasalah, mencoba ulang dengan WASM/CPU…");
+        providers = ["wasm"];
+        engine = null;
+        continue;
+      }
+      throw err;
+    }
+  }
+
+  // Ucapan normal sekitar 0.06–0.09 detik per karakter pada kecepatan 1×.
+  const suspicious = debug.some(d => d.chars >= 20 && (d.duration * d.speed) / d.chars > 0.13);
+  let note = "";
+  if (suspicious) {
+    note += " Peringatan: durasi terlalu panjang untuk panjang teksnya, hasil kemungkinan rusak. " +
+      (engine.providers[0] === "webgpu" ? "Coba backend WASM / CPU." : "Coba sumber model lain di Pengaturan lanjutan.");
+  }
+  if (engine.cacheNote) { note += " " + engine.cacheNote; engine.cacheNote = ""; }
+  console.log("[supertonic]", { model: modelKey, providers: engine.providers, cfg: engine.cfg, debug: debug.slice() });
+  return { parts, sr: engine.cfg.sampleRate, label: "Supertonic, " + engine.providers[0], suspicious, note };
+}
+
+/* ================= Pocket TTS (paket bahasa resmi Kyutai, ekspor ONNX KevinAHM) ================= */
+// Mesin dijalankan di Web Worker (kode di <script id="pocketWorkerSrc"> di bawah, diadaptasi dari
+// KevinAHM/pocket-tts-web). Model, tokenizer, dan voices.bin diunduh dari Space tersebut di Hugging Face.
+const POCKET_BUNDLES = { en: "english_2026-04", de: "german", it: "italian", pt: "portuguese", es: "spanish" };
+const POCKET_FALLBACK = "english_2026-04";
+let pocketWorker = null;
+let pocketBundle = null;
+let pocketSR = 24000;
+let pocketCustomKey = null;
+let pocketSelectedVoice = "";
+
+function getPocketWorker() {
+  if (pocketWorker) return pocketWorker;
+  const src = document.getElementById("pocketWorkerSrc").textContent;
+  const url = URL.createObjectURL(new Blob([src], { type: "text/javascript" }));
+  pocketWorker = new Worker(url, { type: "module" });
+  return pocketWorker;
+}
+
+function setPocketVoices(list, def) {
+  const prev = el.pocketVoice.value;
+  el.pocketVoice.innerHTML = "";
+  for (const v of list) el.pocketVoice.appendChild(new Option(v.charAt(0).toUpperCase() + v.slice(1), v));
+  el.pocketVoice.appendChild(new Option("Suara sendiri (klon dari file audio)", "custom"));
+  const values = [...el.pocketVoice.options].map(o => o.value);
+  el.pocketVoice.value = values.includes(prev) ? prev : (def && values.includes(def) ? def : values[0]);
+  el.pocketCloneField.hidden = el.pocketVoice.value !== "custom";
+}
+
+// Kirim satu perintah ke worker dan tunggu pesan penutupnya.
+function pocketCall(msg, doneType, onAudio) {
+  const w = getPocketWorker();
+  return new Promise((resolve, reject) => {
+    w.onerror = ev => reject(new Error(ev.message || "Worker Pocket TTS gagal dimulai"));
+    w.onmessage = ev => {
+      const m = ev.data;
+      if (m.type === "download") {
+        if (m.cached) { setStatus("Memuat model dari cache browser…"); setProgress(null); }
+        else if (m.total) {
+          setProgress(m.loaded / m.total);
+          setStatus(`Mengunduh ${m.label}… ${(m.loaded / 1e6).toFixed(0)} / ${(m.total / 1e6).toFixed(0)} MB`);
+        }
+      } else if (m.type === "status") {
+        if (m.state === "loading") { setProgress(null); setStatus(m.status); }
+      } else if (m.type === "voices_loaded") {
+        setPocketVoices(m.voices || [], m.defaultVoice);
+      } else if (m.type === "audio_chunk") {
+        if (onAudio) onAudio(m.data);
+      } else if (m.type === "error") {
+        reject(new Error(m.error));
+      } else if (m.type === doneType) {
+        resolve(m);
+      }
+    };
+    w.postMessage(msg);
+  });
+}
+
+async function pocketPrepareClip(file) {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  const ctx = new AC();
+  let buf;
+  try { buf = await ctx.decodeAudioData(await file.arrayBuffer()); }
+  finally { if (ctx.close) ctx.close(); }
+  const mono = new Float32Array(buf.length);
+  for (let c = 0; c < buf.numberOfChannels; c++) {
+    const ch = buf.getChannelData(c);
+    for (let i = 0; i < mono.length; i++) mono[i] += ch[i] / buf.numberOfChannels;
+  }
+  const target = 24000;
+  let out = mono;
+  if (buf.sampleRate !== target) {
+    const ratio = buf.sampleRate / target;
+    out = new Float32Array(Math.floor(mono.length / ratio));
+    for (let i = 0; i < out.length; i++) {
+      const x = i * ratio, f = Math.floor(x), c = Math.min(f + 1, mono.length - 1), t = x - f;
+      out[i] = mono[f] * (1 - t) + mono[c] * t;
+    }
+  }
+  return out.length > target * 10 ? out.slice(0, target * 10) : out;
+}
+
+async function synthPocket(text) {
+  const native = POCKET_BUNDLES[el.lang.value];
+  const bundle = native || POCKET_FALLBACK;
+
+  if (pocketBundle !== bundle) {
+    const m = await pocketCall({ type: "load_bundle", data: { language: bundle } }, "bundle_loaded");
+    pocketBundle = bundle;
+    pocketSR = m.sampleRate || 24000;
+    setProgress(null);
+  }
+
+  let voice = el.pocketVoice.value;
+  if (voice === "custom") {
+    const file = el.pocketFile.files && el.pocketFile.files[0];
+    if (!file) throw new Error("Pilih file audio referensi untuk kloning suara dulu.");
+    const key = `${file.name}:${file.size}:${file.lastModified}`;
+    if (pocketCustomKey !== key) {
+      setStatus("Membaca suara referensi (encoder diunduh sekali)…");
+      const audio = await pocketPrepareClip(file);
+      await pocketCall({ type: "encode_voice", data: { audio } }, "voice_encoded");
+      pocketCustomKey = key;
+      setProgress(null);
+    }
+  }
+
+  const parts = [];
+  let samples = 0;
+  setStatus("Membuat suara (Pocket TTS)…");
+  await pocketCall({ type: "generate", data: { text, voice } }, "stream_ended", pcm => {
+    parts.push(pcm);
+    samples += pcm.length;
+    setStatus(`Membuat suara (Pocket TTS)… ${(samples / pocketSR).toFixed(1)} detik audio`);
+  });
+  const merged = new Float32Array(samples);
+  let o = 0;
+  for (const p of parts) { merged.set(p, o); o += p.length; }
+
+  let note = "";
+  if (!native) note += " Bahasa ini belum punya paket di Pocket TTS, jadi dibaca dengan paket Inggris (beraksen Inggris).";
+  return { parts: [merged], sr: pocketSR, label: `Pocket TTS, ${bundle}`, suspicious: false, note };
+}
+
+/* ================= Alur utama ================= */
+async function generate() {
+  const text = el.text.value.trim();
+  if (!text) { setStatus("Isi teks dulu.", "error"); return; }
+  if (typeof WebAssembly === "undefined") { setStatus("Browser ini tidak mendukung WebAssembly.", "error"); return; }
+
+  const chunks = splitIntoChunks(text);
+  if (!chunks.length) { setStatus("Teks kosong setelah dibersihkan.", "error"); return; }
+
+  const kind = el.engine.value;
+  el.go.disabled = true;
+  el.dl.hidden = true;
+  el.player.hidden = true;
+  const t0 = performance.now();
+
+  try {
+    const r = kind === "piper" ? await synthPiper(chunks)
+      : kind === "pocket" ? await synthPocket(text)
+      : await synthSupertonic(chunks);
+    const audio = concatAudio(r.parts.filter(p => p.length), r.sr);
+    if (!audio.length) throw new Error("Tidak ada audio yang dihasilkan. Coba teks lain.");
+
+    const blob = new Blob([floatToWav(audio, r.sr)], { type: "audio/wav" });
+    if (el.player.dataset.url) URL.revokeObjectURL(el.player.dataset.url);
+    const url = URL.createObjectURL(blob);
+    el.player.dataset.url = url;
+    el.player.src = url;
+    el.player.hidden = false;
+    el.dl.href = url;
+    el.dl.download = kind + ".wav";
+    el.dl.hidden = false;
+
+    const took = (performance.now() - t0) / 1000;
+    setProgress(null);
+    setStatus(
+      `Selesai: ${(audio.length / r.sr).toFixed(1)} detik audio dibuat dalam ${took.toFixed(1)} detik (${r.label}).` + r.note,
+      r.suspicious ? "error" : "ok"
+    );
+    el.player.play().catch(() => {});
+  } catch (err) {
+    console.error(err);
+    setProgress(null);
+    setStatus("Gagal: " + (err && err.message ? err.message : String(err)), "error");
+  } finally {
+    el.go.disabled = false;
+  }
+}
+
+function refreshEngineUI() {
+  const kind = el.engine.value;
+  const sup = kind === "supertonic", piper = kind === "piper", pk = kind === "pocket";
+  el.voiceField.hidden = !sup;
+  el.supParams.hidden = !sup;
+  el.supAdvanced.hidden = !sup;
+  el.piperPanel.hidden = !piper;
+  el.pocketPanel.hidden = !pk;
+  fillLangs(null, lastLang);
+  if (piper) {
+    renderPiperLangOptions(el.lang.value);
+    renderPiperList();
+    ensurePiperVoices();
+  }
+}
+el.engine.addEventListener("change", refreshEngineUI);
+el.lang.addEventListener("change", () => {
+  lastLang = el.lang.value;
+  if (el.engine.value === "piper") { renderPiperLangOptions(el.lang.value); renderPiperList(); }
+});
+el.pocketVoice.addEventListener("change", () => { el.pocketCloneField.hidden = el.pocketVoice.value !== "custom"; });
+el.piperLangSel.addEventListener("change", renderPiperList);
+el.piperSearch.addEventListener("input", renderPiperList);
+el.piperReload.addEventListener("click", () => ensurePiperVoices(true));
+
+el.form.addEventListener("submit", e => { e.preventDefault(); generate(); });
+</script>
+</body>
+</html>
