@@ -68,7 +68,7 @@ Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tek
 - Tidak butuh paket tambahan. `npm run news:test` menguji pembaca feed dan `npm run article:test` menguji pembersih artikel dan pembacaan multi-halaman, keduanya tanpa jaringan.
 
 ## Suara: Edge, Piper, Pocket, Supertonic, dan Google
-Mesin suara yang tersedia sekarang **Piper**, **Pocket TTS**, dan **Supertonic** (Kokoro, Kitten, Chatterbox, XTTS v2, dan VibeVoice sudah dihapus). Piper dan Pocket bisa berjalan **di server** (`engines.js`, bawaan) atau **di perangkat pengguna** (kotak centang, lihat "Mode di perangkat" di bawah); Supertonic saat ini hanya di server. Di mode server, browser hanya mengirim teks ke `/api/tts/engine` dan memutar WAV hasilnya; model dimuat sekali dan tetap di memori server. Suara bawaan browser dan Microsoft Edge ("Online (Natural)") tetap lewat `speechSynthesis`.
+Mesin suara yang tersedia sekarang **Piper**, **Pocket TTS**, dan **Supertonic** (Kokoro, Kitten, Chatterbox, XTTS v2, dan VibeVoice sudah dihapus). Piper dan Pocket bisa berjalan **di server** (`engines.js`, bawaan) atau **di perangkat pengguna** (kotak centang, lihat "Mode di perangkat" di bawah); Supertonic juga bisa di server atau di perangkat (lihat bagian terakhir tentang Supertonic di perangkat). Di mode server, browser hanya mengirim teks ke `/api/tts/engine` dan memutar WAV hasilnya; model dimuat sekali dan tetap di memori server. Suara bawaan browser dan Microsoft Edge ("Online (Natural)") tetap lewat `speechSynthesis`.
 
 Yang perlu dipasang di server (untuk mode server):
 
@@ -87,7 +87,7 @@ Pocket tidak mendukung bahasa Indonesia; untuk teks Indonesia pakai Supertonic, 
 - Dialog **Unduh model** punya baris Supertonic untuk mengunduh model lebih dulu. Status "✓ sudah di server" dibaca dari ada tidaknya berkas `.onnx` di `~/.cache/supertonic3/`.
 - Bila unduhan otomatis gagal (jaringan atau lokasi repositori model berubah), unduh model Supertonic 3 secara manual dari Hugging Face dan taruh isinya (folder `onnx/` dan `voice_styles/`) di `~/.cache/supertonic3/`.
 - Kode paket dilisensikan MIT; bobot modelnya memakai lisensi OpenRAIL-M, jadi baca ketentuannya sebelum aplikasi dipublikasikan.
-- Belum ada mode "di perangkat" (browser) untuk Supertonic.
+- Mode "di perangkat" (browser) tersedia lewat kotak centang "Supertonic di perangkat"; lihat bagian "Supertonic di perangkat" di bawah.
 
 **Struktur teks dari file dan scan:** PDF, DOCX, EPUB, TXT/MD, tautan web, dan hasil Scan dokumen sekarang mempertahankan paragraf, judul bab, serta spasi dan tanda baca (`textfmt.js`). EPUB dibaca urut dari halaman sampul (judul dan penulis ditulis di awal) sampai bab terakhir. PDF: paragraf dideteksi dari jarak antarbaris, indentasi, dan ukuran huruf; nomor halaman dan header/footer berulang dibuang; kalimat yang terpotong di pergantian halaman disambung. Di pembaca, paragraf diberi jarak dan judul ditebalkan. PDF hasil scan (tanpa teks) tetap perlu fitur Scan. Teks lama di Library tidak berubah; unggah ulang filenya untuk mendapat paragraf.
 
@@ -117,3 +117,16 @@ Di dialog Podcast ada pilihan **Whisper di browser** (bawaan) dan **Whisper di s
 - **Pakai GPU (WebGPU)**: opsional, hanya muncul bila browser mendukung. Memakai model `onnx-community/whisper-*` (encoder fp32, decoder q4), jauh lebih cepat tetapi hasilnya bisa sedikit berbeda.
 - **Di server**: cara lama (`/api/podcast/transcribe`), berguna bila perangkat pengguna terlalu lemah.
 - Model diunduh sekali (tiny sekitar 40 MB, base 80 MB, small 250 MB; perkiraan) lalu disimpan di cache browser. Proses di browser memakai WASM, jadi di HP bisa lebih lambat daripada durasi audio; pilih Tiny atau aktifkan GPU.
+
+## Supertonic di perangkat (tanpa server)
+Kotak centang **Supertonic di perangkat** di baris pengaturan pemutar menjalankan Supertonic 3 sepenuhnya di browser, memakai pola yang sama dengan halaman `awalan.html`:
+
+- **onnxruntime-web 1.22.0** (WASM/CPU) dimuat dari jsDelivr, lalu empat model ONNX (`duration_predictor`, `text_encoder`, `vector_estimator`, `vocoder`) dijalankan berurutan; `vector_estimator` diulang 8 langkah, lalu `vocoder` menghasilkan audio 44,1 kHz.
+- Model diunduh browser **langsung dari Hugging Face** dan disimpan di Cache API (nama cache `supertonic3-assets-v1`), jadi unduhan hanya sekali. Server tidak dilibatkan dan teks tidak dikirim ke mana pun. Butuh HTTPS atau localhost (Codespaces memenuhi).
+- Pilihan sumber model di samping kotak centang: **Resmi fp32** (±400 MB, kualitas penuh) atau **int8** (±111 MB, lebih ringan, mirror komunitas `safwan-o/supertonic-3-int8`).
+- Seperti Pocket: saat dicentang muncul konfirmasi, lalu aplikasi **menguji dulu** (memuat model dan membuat satu kalimat). Bila gagal (memori habis, unduhan gagal, browser tidak mendukung), kotak centang dimatikan otomatis dan Supertonic kembali memakai server. Kegagalan di tengah pemakaian juga kembali ke server.
+- Kalimat panjang dipecah per ±280 karakter, lalu audionya disambung. Kecepatan 1,05× dan 8 langkah, sama dengan versi server.
+- Catatan perbaikan: kotak centang Piper di perangkat sebelumnya memakai id `ploc` yang bentrok dengan pilihan lokasi Whisper; sekarang id-nya `pipdev` (kunci penyimpanan `ploc` tidak berubah, jadi pilihan lama tetap terbaca).
+- Belum ada WebGPU di mode ini (hanya WASM). Di HP dengan RAM kecil, pilih int8.
+- Bila Supertonic di perangkat gagal di aplikasi: buka `/awalan.html` di alamat yang sama (halaman uji mandiri yang menjalankan model yang sama). Kalau di sana jalan tetapi di aplikasi tidak, kirim pesan di Console browser (F12); kalau di sana juga gagal, penyebabnya perangkat atau jaringan (RAM, akses ke huggingface.co/jsdelivr).
+- Konfirmasi dialog `confirm()` sengaja tidak dipakai untuk Supertonic karena diblokir di panel pratinjau (Simple Browser) Codespaces; pakai tab browser biasa dari tab Ports.
