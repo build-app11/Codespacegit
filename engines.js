@@ -78,7 +78,21 @@ const CLONE_LANGS = ["en", "de", "fr", "es", "it", "pt"];   // bahasa yang bisa 
 const baseLang = (l) => String(l || "en").toLowerCase().replace("_", "-").split("-")[0];
 const pocketLangOf = (l) => { l = baseLang(l); return POCKET_LANGS.includes(l) ? l : "en"; };
 const cloneLangOf = (l) => { l = baseLang(l); return CLONE_LANGS.includes(l) ? l : "en"; };
-let pw = null, pwPending = {}, pwId = 0, pwBuf = "", pwErr = "";
+let pw = null, pwPending = {}, pwId = 0, pwBuf = "", pwErr = "", pwTimer = null;
+// Model dilepas dari RAM bila tidak dipakai: atur lewat MODEL_IDLE_SEC (detik, bawaan 90; 0 = lepas segera setelah selesai).
+const IDLE_SEC = process.env.MODEL_IDLE_SEC !== undefined && process.env.MODEL_IDLE_SEC !== "" && !isNaN(+process.env.MODEL_IDLE_SEC) ? Math.max(0, +process.env.MODEL_IDLE_SEC) : 90;
+function pocketRelease() {
+  pwTimer = null;
+  if (!pw || Object.keys(pwPending).length) return;   // masih bekerja: jangan dimatikan
+  const c = pw; pw = null; pwBuf = ""; pwErr = "";
+  try { c.removeAllListeners("close"); c.removeAllListeners("error"); c.on("error", () => {}); c.stdout.removeAllListeners("data"); c.stderr.removeAllListeners("data"); c.kill("SIGTERM"); } catch (e) {}
+  console.log("[pocket] dilepas dari RAM (menganggur " + IDLE_SEC + " dtk); dimuat lagi otomatis saat dipakai");
+}
+function pocketIdle() {
+  clearTimeout(pwTimer);
+  pwTimer = setTimeout(pocketRelease, IDLE_SEC * 1000);
+  if (pwTimer.unref) pwTimer.unref();
+}
 function pocketProc() {
   if (pw) return pw;
   const c = spawn(PYTHON, [path.join(__dirname, "pocket_worker.py")], { stdio: ["pipe", "pipe", "pipe"], env: Object.assign({}, process.env, { HF_HOME: process.env.HF_HOME || path.join(MODELS_DIR, "hf") }) });
@@ -96,10 +110,11 @@ function pocketProc() {
   return (pw = c);
 }
 function pocketCall(msg) {
+  clearTimeout(pwTimer); pwTimer = null;
   return new Promise((ok, no) => {
     const c = pocketProc(), id = ++pwId; pwPending[id] = { ok, no };
     c.stdin.write(JSON.stringify(Object.assign({ id }, msg)) + "\n");
-  });
+  }).finally(pocketIdle);
 }
 // Suara klon: sampel WAV pengguna disimpan di models/clones/ dan dipakai Pocket TTS sebagai suara acuan.
 const CLONES_DIR = path.join(MODELS_DIR, "clones");

@@ -155,7 +155,7 @@ app.post("/api/podcast/transcribe", async (req, res) => {
     if (!ac.signal.aborted) send({ type: "error", error: e.message });
   } finally {
     clearInterval(beat);
-    podJob = null; finish();
+    podJob = null; finish(); podcast.asrIdle();
     if (dir) fs.rm(dir, { recursive: true, force: true }, () => {});
     res.end();
   }

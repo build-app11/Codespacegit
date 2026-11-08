@@ -91,10 +91,26 @@ async function saveBody(res, file, opt) {
 
 /* ---------- Whisper ---------- */
 const asrCache = {};
-let sink = null;
+let sink = null, asrTimer = null;
+// Whisper dilepas dari RAM bila tidak dipakai: atur lewat MODEL_IDLE_SEC (detik, bawaan 90; 0 = lepas segera setelah selesai).
+const IDLE_SEC = process.env.MODEL_IDLE_SEC !== undefined && process.env.MODEL_IDLE_SEC !== "" && !isNaN(+process.env.MODEL_IDLE_SEC) ? Math.max(0, +process.env.MODEL_IDLE_SEC) : 90;
+async function releaseAsr() {
+  asrTimer = null;
+  const ps = Object.keys(asrCache).map((k) => { const p = asrCache[k]; delete asrCache[k]; return p; });
+  if (!ps.length) return;
+  for (const p of ps) { try { const a = await p; if (a && typeof a.dispose === "function") await a.dispose(); } catch (e) {} }
+  if (global.gc) { try { global.gc(); } catch (e) {} }
+  console.log("[whisper] dilepas dari RAM (menganggur " + IDLE_SEC + " dtk); dimuat lagi otomatis saat dipakai");
+}
+function asrIdle() {   // dipanggil setelah transkripsi selesai/dibatalkan
+  clearTimeout(asrTimer);
+  asrTimer = setTimeout(releaseAsr, IDLE_SEC * 1000);
+  if (asrTimer.unref) asrTimer.unref();
+}
 function getAsr(key, onPct) {
   const id = MODELS[key];
   if (!id) return Promise.reject(new Error("Model tidak dikenal"));
+  clearTimeout(asrTimer); asrTimer = null;
   sink = onPct || null;
   if (!asrCache[key]) {
     asrCache[key] = (async () => {
@@ -230,4 +246,4 @@ async function status() {
   return out;
 }
 
-module.exports = { MODELS, parseFeed, saveBody, getAsr, transcribeFile, pcmStream, status };
+module.exports = { MODELS, parseFeed, saveBody, getAsr, asrIdle, transcribeFile, pcmStream, status };
