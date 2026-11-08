@@ -255,7 +255,7 @@ app.post("/api/tts", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// Mesin suara di server: Piper dan Pocket (model disimpan di server; keduanya juga bisa dijalankan di perangkat dari browser)
+// Mesin suara di server: Piper, Pocket, dan Supertonic (model disimpan di server; Piper dan Pocket juga bisa dijalankan di perangkat dari browser)
 app.post("/api/tts/engine", async (req, res) => {
   try {
     const wavBuf = await engines.synth(req.body || {});

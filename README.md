@@ -55,7 +55,7 @@ Cara kerja: server mengunduh audio ke file sementara (maks. 400 MB, dihapus sete
 - Podcast berbayar atau yang butuh login tidak didukung. Alamat jaringan privat ditolak.
 
 ## Hemat RAM: model dilepas saat menganggur
-Pocket TTS (proses Python) dan Whisper (di server) dimuat ke RAM saat dipakai, lalu **dilepas otomatis** setelah menganggur 90 detik; dimuat lagi sendiri saat dipakai berikutnya (pemakaian pertama setelah dilepas sedikit lebih lama). Atur lewat variabel `MODEL_IDLE_SEC`, misalnya `MODEL_IDLE_SEC=30 npm start` (0 = lepas segera setelah selesai). Piper tidak perlu diatur karena prosesnya berhenti sendiri setelah tiap kalimat. `npm start` memakai `node --expose-gc` supaya memori Node ikut dikembalikan setelah Whisper dilepas.
+Pocket TTS dan Supertonic (proses Python) dan Whisper (di server) dimuat ke RAM saat dipakai, lalu **dilepas otomatis** setelah menganggur 90 detik; dimuat lagi sendiri saat dipakai berikutnya (pemakaian pertama setelah dilepas sedikit lebih lama). Atur lewat variabel `MODEL_IDLE_SEC`, misalnya `MODEL_IDLE_SEC=30 npm start` (0 = lepas segera setelah selesai). Piper tidak perlu diatur karena prosesnya berhenti sendiri setelah tiap kalimat. `npm start` memakai `node --expose-gc` supaya memori Node ikut dikembalikan setelah Whisper dilepas.
 
 ## Berita (RSS)
 Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tekan **Muat**. Alamat situs berita biasa (bukan alamat feed) juga boleh; feed-nya dicari otomatis lewat tag `<link rel="alternate">` di halaman itu. Daftar artikel menampilkan judul, waktu, sumber, dan cuplikan. Tombol **+ Library** mengambil isi lengkap artikel di server (Readability, sama seperti Web Link) dan menyimpannya ke Library, lalu bisa dibaca, diterjemahkan, dan diberi IPA seperti teks lain. Yang disimpan selalu isi lengkap, bukan ringkasan feed. Bila halaman artikel tidak bisa dimuat, dipakai isi penuh dari feed itu sendiri (`content:encoded`) kalau ada; kalau tidak ada, artikel tidak disimpan dan muncul pesan (biasanya artikel berbayar atau situs yang memblokir akses). Bila teks yang terambil pendek (di bawah 120 kata), ada catatan supaya kamu bisa memeriksa lewat tautan Sumber.
@@ -67,8 +67,8 @@ Menu **+ > Berita (RSS)**: tempel URL feed RSS 2.0, Atom, atau RSS 1.0, lalu tek
 - Alamat jaringan privat ditolak, termasuk saat ada pengalihan. Artikel berbayar atau yang butuh login tidak didukung.
 - Tidak butuh paket tambahan. `npm run news:test` menguji pembaca feed dan `npm run article:test` menguji pembersih artikel dan pembacaan multi-halaman, keduanya tanpa jaringan.
 
-## Suara: Edge, Piper, Pocket, dan Google
-Mesin suara yang tersedia sekarang hanya **Piper** dan **Pocket TTS** (Kokoro, Kitten, Chatterbox, XTTS v2, dan VibeVoice sudah dihapus). Keduanya bisa berjalan **di server** (`engines.js`, bawaan) atau **di perangkat pengguna** (kotak centang, lihat "Mode di perangkat" di bawah). Di mode server, browser hanya mengirim teks ke `/api/tts/engine` dan memutar WAV hasilnya; model dimuat sekali dan tetap di memori server. Suara bawaan browser dan Microsoft Edge ("Online (Natural)") tetap lewat `speechSynthesis`.
+## Suara: Edge, Piper, Pocket, Supertonic, dan Google
+Mesin suara yang tersedia sekarang **Piper**, **Pocket TTS**, dan **Supertonic** (Kokoro, Kitten, Chatterbox, XTTS v2, dan VibeVoice sudah dihapus). Piper dan Pocket bisa berjalan **di server** (`engines.js`, bawaan) atau **di perangkat pengguna** (kotak centang, lihat "Mode di perangkat" di bawah); Supertonic saat ini hanya di server. Di mode server, browser hanya mengirim teks ke `/api/tts/engine` dan memutar WAV hasilnya; model dimuat sekali dan tetap di memori server. Suara bawaan browser dan Microsoft Edge ("Online (Natural)") tetap lewat `speechSynthesis`.
 
 Yang perlu dipasang di server (untuk mode server):
 
@@ -76,8 +76,18 @@ Yang perlu dipasang di server (untuk mode server):
 |---|---|---|
 | Piper | `pip install piper-tts` (atau taruh binary `piper` di PATH; atur lewat `PIPER_BIN`) | Suara (.onnx) diunduh otomatis dari Hugging Face ke `models/piper/`. |
 | Pocket TTS | `pip install pocket-tts` (Python 3.10+, PyTorch 2.5+ versi CPU cukup; `pip install -U pocket-tts` untuk bahasa selain Inggris) | Mesin Kyutai ±100M parameter, jalan di CPU. 8 suara bawaan Inggris (alba, marius, javert, jean, fantine, cosette, eponine, azelma) plus juergen (de), estelle (fr), lola (es), giovanni (it), rafael (pt). Model dari Hugging Face `kyutai/pocket-tts` dan bisa meminta login/persetujuan lisensi: kalau unduhan gagal, buat token di huggingface.co lalu jalankan `HF_TOKEN=... npm start`. Dijalankan lewat `pocket_worker.py`. |
+| Supertonic | `pip install supertonic` (Python 3.9+, CPU saja) | Mesin Supertone ±99M parameter, 44,1 kHz, 31 bahasa (termasuk **Indonesia**). 10 suara bawaan: F1-F5 (perempuan) dan M1-M5 (laki-laki), semuanya bisa membaca semua bahasa. Model ±400 MB diunduh otomatis saat pertama dipakai ke `~/.cache/supertonic3/` (bukan ke folder `models/`). Dijalankan lewat `supertonic_worker.py`. |
 
-Pocket tidak mendukung bahasa Indonesia; untuk teks Indonesia pakai Piper (`id_ID-news_tts-medium`), Edge, atau suara bawaan browser.
+Pocket tidak mendukung bahasa Indonesia; untuk teks Indonesia pakai Supertonic, Piper (`id_ID-news_tts-medium`), Edge, atau suara bawaan browser.
+
+**Supertonic:** semua suara (F1-F5, M1-M5) ada di daftar suara sebagai "Supertonic · F1 (multibahasa)" dan cocok dengan bahasa utama apa pun yang didukung, jadi suara ikut berganti bahasa mengikuti bahasa utama. Bahasa yang didukung: en, ko, ja, ar, bg, cs, da, de, el, es, et, fi, fr, hi, hr, hu, id, it, lt, lv, nl, pl, pt, ro, ru, sk, sl, sv, tr, uk, vi. Bahasa di luar daftar (mis. Mandarin dan Ibrani) tidak ditawarkan otomatis; kalau suara Supertonic tetap dipilih manual untuk bahasa itu, teks dikirim dengan kode `na` (tanpa bahasa tertentu) dan hasilnya tidak terjamin. Bila teks terjemahan ikut dibaca, bahasanya mengikuti bahasa terjemahan, bukan bahasa utama.
+
+- Kualitas diatur lewat `SUPERTONIC_STEPS` (jumlah langkah inferensi, bawaan 8; 5 = cepat, 12 = terbaik), misalnya `SUPERTONIC_STEPS=5 npm start`.
+- Seperti Pocket, proses Python Supertonic dilepas dari RAM setelah menganggur (`MODEL_IDLE_SEC`).
+- Dialog **Unduh model** punya baris Supertonic untuk mengunduh model lebih dulu. Status "✓ sudah di server" dibaca dari ada tidaknya berkas `.onnx` di `~/.cache/supertonic3/`.
+- Bila unduhan otomatis gagal (jaringan atau lokasi repositori model berubah), unduh model Supertonic 3 secara manual dari Hugging Face dan taruh isinya (folder `onnx/` dan `voice_styles/`) di `~/.cache/supertonic3/`.
+- Kode paket dilisensikan MIT; bobot modelnya memakai lisensi OpenRAIL-M, jadi baca ketentuannya sebelum aplikasi dipublikasikan.
+- Belum ada mode "di perangkat" (browser) untuk Supertonic.
 
 **Struktur teks dari file dan scan:** PDF, DOCX, EPUB, TXT/MD, tautan web, dan hasil Scan dokumen sekarang mempertahankan paragraf, judul bab, serta spasi dan tanda baca (`textfmt.js`). EPUB dibaca urut dari halaman sampul (judul dan penulis ditulis di awal) sampai bab terakhir. PDF: paragraf dideteksi dari jarak antarbaris, indentasi, dan ukuran huruf; nomor halaman dan header/footer berulang dibuang; kalimat yang terpotong di pergantian halaman disambung. Di pembaca, paragraf diberi jarak dan judul ditebalkan. PDF hasil scan (tanpa teks) tetap perlu fitur Scan. Teks lama di Library tidak berubah; unggah ulang filenya untuk mendapat paragraf.
 
