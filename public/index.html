@@ -244,8 +244,9 @@ mark.w{background:var(--yellow);color:var(--on);border-radius:6px;padding:0 3px;
   </div>
   <div class="row pfoot"><button class="btn" id="podclose">Tutup</button><span style="flex:1"></span><button class="btn" id="ptxt" disabled>⬇ TXT</button><button class="btn" id="psrt" disabled>⬇ SRT</button><button class="btn" id="psave" disabled title="Simpan ke Library">Simpan</button></div></dialog>
 <dialog id="mdlg"><h2 style="margin:0 0 6px;font-size:20px">Unduh model suara</h2>
-  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Piper dan Pocket di sini diunduh dan disimpan <b>di server</b> (bukan di perangkat ini). Whisper diunduh ke browser ini. Untuk menjalankan Piper atau Pocket <b>di perangkat</b>, centang "Piper/Pocket di perangkat" di pemutar; modelnya diunduh otomatis ke browser. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
+  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Piper, Pocket, dan Supertonic di sini diunduh dan disimpan <b>di server</b> (bukan di perangkat ini). Whisper diunduh ke browser ini. Untuk menjalankan Piper atau Pocket <b>di perangkat</b>, centang "Piper/Pocket di perangkat" di pemutar; modelnya diunduh otomatis ke browser. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
   <div class="mdrow"><b>Pocket <select id="mdpl" aria-label="Bahasa Pocket"><option value="en">English</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="nl">Nederlands</option><option value="ja">日本語 (non-komersial)</option></select></b><span class="sub" id="mds-pocket"></span><button class="btn" id="mdd-pocket">Unduh</button></div>
+  <div class="mdrow"><b>Supertonic <span class="sub">31 bahasa · ±400 MB</span></b><span class="sub" id="mds-supertonic"></span><button class="btn" id="mdd-supertonic">Unduh</button></div>
   <div id="clforms"></div>
   <div class="mdrow"><b>Piper</b><select id="mdpv" aria-label="Suara Piper"></select><span class="sub" id="mds-piper"></span><button class="btn" id="mdd-piper">Unduh</button></div>
   <div class="mdrow"><b>Piper <span class="sub">banyak sekaligus</span></b><select id="mdpscope" aria-label="Cakupan unduhan Piper"><option value="lang">Bahasa teks ini saja</option><option value="all">Semua suara Piper</option></select><button class="btn" id="mdd-pall">Unduh semua</button></div>
@@ -356,10 +357,12 @@ function vlang(c){c=(c||"").replace("_","-");var l=c.toLowerCase();if(/^zh-(hans
 function pl(c){var p=(c||"").replace("_","-").toLowerCase().split("-")[0];return p==="in"?"id":p}
 var POCKET_LANGS=["en","fr","de","pt","it","es","nl","ja"],
   CLONE_POCKET=["en","de","fr","es","it","pt"],
-  ENG_LANGS={pocket:POCKET_LANGS};
+  SUPER_LANGS=["en","ko","ja","ar","bg","cs","da","de","el","es","et","fi","fr","hi","hr","hu","id","it","lt","lv","nl","pl","pt","ro","ru","sk","sl","sv","tr","uk","vi"],
+  ENG_LANGS={pocket:POCKET_LANGS,supertonic:SUPER_LANGS};
 function vMatch(v,c){var L=ENG_LANGS[v.engine];if(L&&!v.plang&&L.indexOf(pl(vlang(c)))>=0)return true;return pl(v.lang)===pl(vlang(c))}
 function pocketLang(v){if(v&&v.plang)return v.plang;var m=$("ml"),c=(m&&m.value)||(cur&&cur.lang)||"en",l=pl(vlang(c));return POCKET_LANGS.indexOf(l)>=0?l:"en"}
-function engLang(v){return pocketLang(v)} // bahasa untuk Pocket (jatuh ke "en" bila tidak didukung)
+function superLang(lang){var c=lang||mainLang()||(($("ml")&&$("ml").value)||(cur&&cur.lang)||""),l=pl(vlang(c));return SUPER_LANGS.indexOf(l)>=0?l:"na"} // "na" = bahasa tak didukung Supertonic (mis. Mandarin)
+function engLang(v,lang){return v&&v.engine==="supertonic"?superLang(lang):pocketLang(v)} // bahasa untuk mesin; Pocket jatuh ke "en", Supertonic ke "na"
 function mainLang(){if(!cur)return "";var l=cur.main||cur.lang;return l&&l!=="und"?l:""}
 function sameLang(a,b){if(!a||!b)return false;var x=vlang(a).toLowerCase(),y=vlang(b).toLowerCase(),p=pl(x);return p===pl(y)&&(p!=="zh"||x===y||x==="zh"||y==="zh")}
 function mk(code,id,L,k){return code+"|"+id+"|"+L+"|"+k}
@@ -368,13 +371,14 @@ function vKey(L){return KEY+"-voice"+(L?"-"+pl(L):"")}
 function langName(c){try{return new Intl.DisplayNames(["id"],{type:"language"}).of(vlang(c))||c}catch(e){return c}}
 function nat(x){return x.engine?2:/Natural|Online/i.test(x.name)?0:1} // suara neural Microsoft Edge (Online/Natural) diutamakan
 function pickV(vs,L){return vs.filter(function(x){return !x.engine&&vMatch(x,L)}).sort(function(a,b){return nat(a)-nat(b)})[0]||null}
-var srvInst={piper:{},pocket:false};
+var srvInst={piper:{},pocket:false,supertonic:false};
 function isInst(x){ // suara bawaan sistem selalu siap; suara mesin hanya jika modelnya sudah terpasang
   if(!x.engine)return true;
   if(x.engine==="pocket")return !!srvInst.pocket||locOn("pocket");
+  if(x.engine==="supertonic")return !!srvInst.supertonic;
   return !!srvInst.piper[x.id]||locOn("piper")}
 function loadInst(){fetch("/api/tts/engine/status").then(function(r){return r.json()}).then(function(st){
-  if(st.error||!st.piper)return;srvInst.pocket=!!(st.pocket||{}).cached;srvInst.piper={};((st.piper||{}).stored||[]).forEach(function(i){srvInst.piper[i]=1});
+  if(st.error||!st.piper)return;srvInst.pocket=!!(st.pocket||{}).cached;srvInst.supertonic=!!(st.supertonic||{}).cached;srvInst.piper={};((st.piper||{}).stored||[]).forEach(function(i){srvInst.piper[i]=1});
   voices();voices2()}).catch(function(){})}
 function voices(){var v=synth?allVoices():[],s=$("voice"),old=s.value,L=mainLang(),pref=L||"id";
   v.sort(function(a,b){return (vMatch(a,pref)?0:1)-(vMatch(b,pref)?0:1)||(isInst(a)?0:1)-(isInst(b)?0:1)||nat(a)-nat(b)||a.name.localeCompare(b.name)});
@@ -435,7 +439,7 @@ function openReader(it){
 }
 /* Bahasa utama = terjemahan mesin dari teks asli */
 function noVoiceWarn(){var L=mainLang();if(!L||!synth)return;var vs=synth.getVoices();
-  if(vs.length&&!vs.some(function(x){return vMatch(x,L)}))toast("Perangkat ini belum punya suara "+langName(L)+". Suara bawaan dipakai; pasang suara "+langName(L)+" di pengaturan text-to-speech."+(ENG_VOICES.some(function(x){return vMatch(x,L)})?" Atau pilih suara Piper di daftar suara.":""))}
+  if(vs.length&&!vs.some(function(x){return vMatch(x,L)}))toast("Perangkat ini belum punya suara "+langName(L)+". Suara bawaan dipakai; pasang suara "+langName(L)+" di pengaturan text-to-speech."+(ENG_VOICES.some(function(x){return vMatch(x,L)})?" Atau pilih suara Piper/Supertonic di daftar suara.":""))}
 function afterLang(it,msg){
   putItem(it);trTok++;mtTok++;mWait=null;trWarn=false;ci=-1;
   mlUI();voices();voices2();setPos(pos);toast(msg);setTimeout(noVoiceWarn,1500)}
@@ -548,7 +552,7 @@ function stopHL(){var h=hl;if(!h)return;clearInterval(h.timer);clearTimeout(h.wa
   if(h.cells){var o=h.cells[h.idx];if(o)o.classList.remove("hw");if(!(phOn.rm||phOn.ip)&&h.k!=null)applyPh(h.k)}else h.el.textContent=h.t+h.tail;
   if(!h.cells&&h.k!=null&&h.el.classList.contains("s"))applyPh(h.k)}
 
-/* ---------- Mesin suara: Piper & Pocket ----------
+/* ---------- Mesin suara: Piper, Pocket & Supertonic ----------
    Default: berjalan di SERVER. Opsional (kotak centang): berjalan di perangkat lewat WebAssembly; model diunduh sekali lalu disimpan di cache browser. Gagal -> otomatis kembali ke server. */
 var ENG_VOICES=[
   {name:"Pocket · alba",lang:"en-US",engine:"pocket",id:"alba"},
@@ -564,6 +568,16 @@ var ENG_VOICES=[
   {name:"Pocket · lola",lang:"es-ES",plang:"es",engine:"pocket",id:"lola"},
   {name:"Pocket · giovanni",lang:"it-IT",plang:"it",engine:"pocket",id:"giovanni"},
   {name:"Pocket · rafael",lang:"pt-PT",plang:"pt",engine:"pocket",id:"rafael"},
+  {name:"Supertonic · F1",lang:"multibahasa",engine:"supertonic",id:"F1"},
+  {name:"Supertonic · F2",lang:"multibahasa",engine:"supertonic",id:"F2"},
+  {name:"Supertonic · F3",lang:"multibahasa",engine:"supertonic",id:"F3"},
+  {name:"Supertonic · F4",lang:"multibahasa",engine:"supertonic",id:"F4"},
+  {name:"Supertonic · F5",lang:"multibahasa",engine:"supertonic",id:"F5"},
+  {name:"Supertonic · M1",lang:"multibahasa",engine:"supertonic",id:"M1"},
+  {name:"Supertonic · M2",lang:"multibahasa",engine:"supertonic",id:"M2"},
+  {name:"Supertonic · M3",lang:"multibahasa",engine:"supertonic",id:"M3"},
+  {name:"Supertonic · M4",lang:"multibahasa",engine:"supertonic",id:"M4"},
+  {name:"Supertonic · M5",lang:"multibahasa",engine:"supertonic",id:"M5"},
   {name:"Piper · en_US lessac",lang:"en-US",engine:"piper",id:"en_US-lessac-medium"},
   {name:"Piper · en_US hfc_female",lang:"en-US",engine:"piper",id:"en_US-hfc_female-medium"},
   {name:"Piper · en_US amy",lang:"en-US",engine:"piper",id:"en_US-amy-medium"},
@@ -584,7 +598,7 @@ function allVoices(){return (synth?synth.getVoices():[]).concat(ENG_VOICES)}
 function importAny(urls){var i=0;function t(){return import(urls[i]).catch(function(e){if(++i>=urls.length)throw e;return t()})}return t()}
 function srvPost(path,body){return fetch(path,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(body)}).then(function(r){
   if(r.ok)return r;return r.json().catch(function(){return {}}).then(function(j){throw new Error(j.error||("HTTP "+r.status))})})}
-function engViaServer(v,text){return srvPost("/api/tts/engine",{engine:v.engine,voice:v.id,text:text,lang:ENG_LANGS[v.engine]?engLang(v):undefined}).then(function(r){return r.blob()})}
+function engViaServer(v,text,lang){return srvPost("/api/tts/engine",{engine:v.engine,voice:v.id,text:text,lang:ENG_LANGS[v.engine]?engLang(v,lang):undefined}).then(function(r){return r.blob()})}
 function wavBlob(d,sr){var n=d.length,buf=new ArrayBuffer(44+n*2),w=new DataView(buf),i;
   function t(o,x){for(var j=0;j<x.length;j++)w.setUint8(o+j,x.charCodeAt(j))}
   t(0,"RIFF");w.setUint32(4,36+n*2,true);t(8,"WAVEfmt ");w.setUint32(16,16,true);w.setUint16(20,1,true);w.setUint16(22,1,true);
@@ -649,15 +663,16 @@ function pocketDevFail(e){   // perangkat gagal -> kembalikan ke server (kotak c
   locBad.pocket=true;LOC.pocket=false;lsSet("pocloc",0);var c=$("pocloc");if(c)c.checked=false;
   setWhereTxt("Pocket: ⚠️ di server (perangkat gagal)");
   toast("⚠️ Pocket gagal dijalankan di perangkat ini ("+devMsg(e)+"). Dikembalikan ke server; kotak centang dimatikan.");voices();voices2()}
-function setWhere(v,where){setWhereTxt(({piper:"Piper",pocket:"Pocket"}[v.engine]||v.engine)+": "+where)}
+function setWhere(v,where){setWhereTxt(({piper:"Piper",pocket:"Pocket",supertonic:"Supertonic"}[v.engine]||v.engine)+": "+where)}
 function isCloneId(id){return String(id).indexOf("clone-")===0}
-function devJob(v,text){   // jalankan di perangkat bila dipilih; gagal -> server. Lokasi terakhir ditampilkan di samping kotak centang.
+function devJob(v,text,lang){   // jalankan di perangkat bila dipilih; gagal -> server. Lokasi terakhir ditampilkan di samping kotak centang.
   var run=null;
   if(v.engine==="piper"&&locOn("piper"))run=piperLocalGen(v.id,text);
   else if(v.engine==="pocket"&&locOn("pocket")&&!isCloneId(v.id))run=pocketLocalGen(v.id,text,engLang(v));
   var srv=function(){
     if(v.engine==="pocket"){var pl_=engLang(v);if(!pocketSeen[pl_]){pocketSeen[pl_]=1;toast("Pocket ("+pl_+"): pertama kali, model bahasa ini diunduh di server. Mohon tunggu…",true)}}
-    return engViaServer(v,text).then(function(b){setWhere(v,"di server"+(v.engine==="pocket"&&isCloneId(v.id)&&LOC.pocket?" (suara klon selalu di server)":""));return b})};
+    if(v.engine==="supertonic"&&!srvInst.supertonic&&!superSeen){superSeen=1;toast("Supertonic: pertama kali, model (±400 MB) diunduh di server. Mohon tunggu…",true)}
+    return engViaServer(v,text,lang).then(function(b){setWhere(v,"di server"+(v.engine==="pocket"&&isCloneId(v.id)&&LOC.pocket?" (suara klon selalu di server)":""));return b})};
   if(!run)return srv();
   return run.then(function(b){
     setWhere(v,v.engine==="pocket"?"✅ berjalan di perangkat":"di perangkat");
@@ -668,8 +683,8 @@ function devJob(v,text){   // jalankan di perangkat bila dipilih; gagal -> serve
       else pocketDevFail(e)}
     else{locBad[v.engine]=true;toast("Di perangkat gagal, pakai server"+(e&&e.message?" ("+String(e.message).slice(0,60)+")":""))}
     return srv()})}
-var pocketSeen={en:1};
-function devTag(v){if(ENG_LANGS[v.engine])return ":"+engLang(v)+(locOn(v.engine)&&!isCloneId(v.id)?":dev":"");return locOn(v.engine)?":dev":""}
+var pocketSeen={en:1},superSeen=false;
+function devTag(v,lang){if(ENG_LANGS[v.engine])return ":"+engLang(v,lang)+(locOn(v.engine)&&!isCloneId(v.id)?":dev":"");return locOn(v.engine)?":dev":""}
 /* ---------- Suara klon (Pocket TTS di server) ---------- */
 function toWav24(file){   // decode apa pun -> mono 24 kHz, maks 30 detik, WAV
   return file.arrayBuffer().then(function(ab){var AC=window.AudioContext||window.webkitAudioContext,ctx=new AC();
@@ -728,7 +743,7 @@ function piperAll(quiet){
 /* ---------- Unduh model lebih dulu (Piper, Pocket, Whisper) ---------- */
 function mdlGet(){try{return JSON.parse(localStorage.getItem(KEY+"-mdl")||"{}")}catch(e){return {}}}
 function mdlMark(k){try{var o=mdlGet();if(!o[k]){o[k]=1;localStorage.setItem(KEY+"-mdl",JSON.stringify(o));setTimeout(loadInst,300)}}catch(e){}}
-function mdlKey(v){return v.engine==="pocket"?"pocket":"piper:"+v.id}
+function mdlKey(v){return v.engine==="pocket"?"pocket":v.engine==="supertonic"?"supertonic":"piper:"+v.id}
 function mdlLoad(v,on){   // model diunduh/dimuat di server, tanpa membuat suara
   on("Mengunduh/memuat di server…");
   return srvPost("/api/tts/engine/preload",{engine:v.engine,voice:v.id,lang:v.lang}).then(function(){})}
@@ -737,12 +752,13 @@ function mdSet(id,ok,where){var e=$(id);e.textContent=ok?"✓ sudah di "+(where|
 function mdStat(){
   var f=mdlGet();
   mdSet("mds-whisper",f["whisper:"+$("mdwm").value]);
-  ["piper","pocket"].forEach(function(n){$("mds-"+n).textContent="memeriksa server…";$("mds-"+n).className="sub"});
+  ["piper","pocket","supertonic"].forEach(function(n){$("mds-"+n).textContent="memeriksa server…";$("mds-"+n).className="sub"});
   fetch("/api/tts/engine/status").then(function(r){return r.json()}).then(function(st){   // status Piper/Pocket di server
     if(st.error)throw 0;var pst=st.piper||{},pk=st.pocket||{};
     function srv(id,ok,inst,name){var e=$(id);if(inst===false){e.textContent="belum terpasang di server ("+name+")";e.className="sub"}else mdSet(id,ok,"server")}
     var plg=$("mdpl").value;srv("mds-pocket",plg==="en"?pk.cached:!!f["pocket:"+plg],pk.installed,"pip install -U pocket-tts");
-    srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"pip install piper-tts")}).catch(function(){["piper","pocket"].forEach(function(n){$("mds-"+n).textContent="server tidak merespons"})});
+    srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"pip install piper-tts");
+    var sp=st.supertonic||{};srv("mds-supertonic",!!sp.cached,sp.installed,"pip install supertonic")}).catch(function(){["piper","pocket","supertonic"].forEach(function(n){$("mds-"+n).textContent="server tidak merespons"})});
   if(window.caches)caches.open("transformers-cache").then(function(c){return c.keys()}).then(function(ks){   // Whisper: cek langsung isi cache browser
     var wm=$("mdwm").value;
     mdSet("mds-whisper",ks.some(function(r){return r.url.indexOf("whisper-"+wm+"/")>=0&&/\.onnx/.test(r.url)}))}).catch(function(){})}
@@ -751,14 +767,14 @@ function mdPiperOpts(){var s=$("mdpv"),old=s.value;s.innerHTML="";
   if(old)s.value=old}
 function mdRun(key,label,fn){
   if(mdBusy)return;mdBusy=true;
-  ["piper","pocket","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=true});
+  ["piper","pocket","supertonic","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=true});
   var bar=$("mdbar");bar.hidden=false;bar.removeAttribute("value");$("mdmsg").textContent="Memulai…";
   try{if(navigator.storage&&navigator.storage.persist)navigator.storage.persist();if(navigator.wakeLock)navigator.wakeLock.request("screen").then(function(l){mdWake=l}).catch(function(){})}catch(e){}   // layar tetap menyala dan cache dilindungi
   function on(t,pv){$("mdmsg").textContent=t;var m=/(\d+)%/.exec(t);if(pv!=null)bar.value=pv;else if(m)bar.value=+m[1];else bar.removeAttribute("value")}
   Promise.resolve().then(function(){return fn(on)}).then(function(r){
     var msg=typeof r==="string"?r:"Selesai: "+label;if(key)mdlMark(key);bar.value=100;$("mdmsg").textContent=msg;if(!$("mdlg").open)toast(typeof r==="string"?r:"Model "+label+" siap")
   }).catch(function(e){$("mdmsg").textContent="Gagal: "+(e&&e.message||e)}).then(function(){
-    mdBusy=false;["piper","pocket","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=false});$("mdcancel").hidden=true;
+    mdBusy=false;["piper","pocket","supertonic","pall","whisper"].forEach(function(n){$("mdd-"+n).disabled=false});$("mdcancel").hidden=true;
     try{if(mdWake){mdWake.release();mdWake=null}}catch(e){}mdStat()})}
 var mdAbort=false;
 function piperMB(id){var q=id.split("-").pop();return q==="x_low"?20:q==="low"?60:q==="high"?110:65}   // perkiraan kasar ukuran per suara
@@ -792,13 +808,14 @@ $("mdclose").onclick=function(){$("mdlg").close()};
 $("mdpv").onchange=$("mdwm").onchange=mdStat;
 $("mdd-pocket").onclick=function(){var lg=$("mdpl").value;mdRun(lg==="en"?"pocket":"pocket:"+lg,"Pocket "+lg,function(on){return mdlLoad({engine:"pocket",id:"alba",lang:lg},on).then(function(){pocketSeen[lg]=1})})};
 $("mdpl").onchange=function(){mdStat()};
+$("mdd-supertonic").onclick=function(){mdRun("supertonic","Supertonic",function(on){return mdlLoad({engine:"supertonic",id:"M1",lang:"en"},on).then(function(){superSeen=true})})};
 $("mdd-piper").onclick=function(){var id=$("mdpv").value;if(!id)return;mdRun("piper:"+id,"Piper "+id,function(on){return mdlLoad({engine:"piper",id:id},on)})};
 $("mdd-whisper").onclick=function(){var m=$("mdwm").value;mdRun("whisper:"+m,"Whisper "+m,function(on){
   podPct=function(x){on("Mengunduh model Whisper… "+x+"%")};on("Memuat model Whisper…");return podAsr(m,false)})};
 /* satu per satu (antrean) dan di-cache supaya kalimat berikutnya bisa disiapkan lebih dulu */
-function engGen(v,text){
-  var key=v.engine+devTag(v)+"|"+v.id+(v.plang?"|"+v.plang:"")+"|"+text;if(engCache.has(key))return engCache.get(key);
-  var p=engQ=engQ.catch(function(){}).then(function(){var job=devJob(v,text);
+function engGen(v,text,lang){
+  var key=v.engine+devTag(v,lang)+"|"+v.id+(v.plang?"|"+v.plang:"")+"|"+text;if(engCache.has(key))return engCache.get(key);
+  var p=engQ=engQ.catch(function(){}).then(function(){var job=devJob(v,text,lang);
     return job.then(function(b){mdlMark(mdlKey(v));return b})});
   engCache.set(key,p);p.catch(function(){engCache.delete(key)});
   if(engCache.size>8)engCache.delete(engCache.keys().next().value);
@@ -818,7 +835,7 @@ function sayEngine(P,k,tok){
   var rate=parseFloat($("rate").value),txt=P.txt,v=P.v;
   if(P.el)hl=newHL(P.el,txt,P.tail,P.lang||mainLang(),rate,k);
   toast("Menyiapkan suara…",true);
-  engGen(v,txt).then(function(blob){
+  engGen(v,txt,P.lang).then(function(blob){
     $("toast").style.display="none";
     if(tok!==spTok||!playing)return;
     engStop();var a=engAudio=new Audio(URL.createObjectURL(blob));a.playbackRate=rate;a.preservesPitch=true;
@@ -826,7 +843,7 @@ function sayEngine(P,k,tok){
     a.onerror=function(){if(tok===spTok)engFail(new Error("audio tidak bisa diputar"))};
     engTimer=setInterval(function(){if(tok!==spTok||!hl||!(a.duration>0))return;hlAt(Math.floor(a.currentTime/a.duration*txt.length))},80);
     a.play().catch(engFail);
-    for(var j=1;j<=2;j++)if(k+j<sents.length&&mReady(k+j)){var nx=plan(k+j);if(nx.v&&nx.v.engine)engGen(nx.v,nx.txt).catch(function(){})}
+    for(var j=1;j<=2;j++)if(k+j<sents.length&&mReady(k+j)){var nx=plan(k+j);if(nx.v&&nx.v.engine)engGen(nx.v,nx.txt,nx.lang).catch(function(){})}
   }).catch(function(e){if(tok===spTok)engFail(e)})}
 function speak(){
   if(!synth||!cur)return;synth.cancel();engStop();stopHL();
