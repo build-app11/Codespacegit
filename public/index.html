@@ -244,7 +244,8 @@ mark.w{background:var(--yellow);color:var(--on);border-radius:6px;padding:0 3px;
   </div>
   <div class="row pfoot"><button class="btn" id="podclose">Tutup</button><span style="flex:1"></span><button class="btn" id="ptxt" disabled>⬇ TXT</button><button class="btn" id="psrt" disabled>⬇ SRT</button><button class="btn" id="psave" disabled title="Simpan ke Library">Simpan</button></div></dialog>
 <dialog id="mdlg"><h2 style="margin:0 0 6px;font-size:20px">Unduh model suara</h2>
-  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Piper, Pocket, dan Supertonic di sini diunduh dan disimpan <b>di server</b> (bukan di perangkat ini). Whisper diunduh ke browser ini. Untuk menjalankan Piper, Pocket, atau Supertonic <b>di perangkat</b>, centang "Piper/Pocket/Supertonic di perangkat" di pemutar; modelnya diunduh otomatis ke browser. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
+  <p class="sub" style="margin:0 0 8px">Unduh dulu (sebaiknya lewat Wi-Fi) supaya nanti langsung bisa dipakai tanpa menunggu. Pilih <b>Simpan di</b>: <b>Browser ini</b> (model disimpan di cache browser dan dijalankan di perangkat, tanpa server) atau <b>Server</b>. Whisper selalu diunduh ke browser ini. Setelah mengunduh ke browser, centang "Piper/Pocket/Supertonic di perangkat" di pemutar supaya model itu dipakai. Pocket di perangkat tersedia untuk Inggris, Jerman, Spanyol, Italia, Portugis. Biarkan tab tetap terbuka selama mengunduh; dialog boleh ditutup.</p>
+  <div class="mdrow"><b>Simpan di</b><select id="mdwhere" aria-label="Tempat menyimpan model"><option value="device" selected>Browser ini (di perangkat)</option><option value="server">Server</option></select></div>
   <div class="mdrow"><b>Pocket <select id="mdpl" aria-label="Bahasa Pocket"><option value="en">English</option><option value="fr">Français</option><option value="de">Deutsch</option><option value="es">Español</option><option value="it">Italiano</option><option value="pt">Português</option><option value="nl">Nederlands</option><option value="ja">日本語 (non-komersial)</option></select></b><span class="sub" id="mds-pocket"></span><button class="btn" id="mdd-pocket">Unduh</button></div>
   <div class="mdrow"><b>Supertonic <span class="sub">31 bahasa · ±400 MB</span></b><span class="sub" id="mds-supertonic"></span><button class="btn" id="mdd-supertonic">Unduh</button></div>
   <div id="clforms"></div>
@@ -298,6 +299,960 @@ mark.w{background:var(--yellow);color:var(--on);border-radius:6px;padding:0 3px;
     <div class="dlist" id="pbody"></div></div>
   <div class="dfoot"><a href="https://en.wiktionary.org" target="_blank" rel="noopener">Wiktionary</a> via <a href="https://freedictionaryapi.com" target="_blank" rel="noopener">FreeDictionaryAPI.com</a> · terjemahan Google Translate</div></div>
 <script src="https://cdn.jsdelivr.net/npm/tesseract.js@5.1.1/dist/tesseract.min.js"></script>
+<script type="text/plain" id="pocketWorkerSrc">
+let ort = null;
+
+const DEFAULT_LANGUAGE = "english_2026-04";
+const LANGUAGE_BUNDLES = ["english_2026-04", "german", "italian", "portuguese", "spanish"];
+const MODEL_STEMS = {
+    mimi_encoder: "mimi_encoder_int8.onnx",
+    text_conditioner: "text_conditioner_int8.onnx",
+    flow_lm_main: "flow_lm_main_int8.onnx",
+    flow_lm_flow: "flow_lm_flow_int8.onnx",
+    mimi_decoder: "mimi_decoder_int8.onnx",
+};
+const DEBUG_LOGS = false;
+const CHUNK_GAP_SEC = 0.25;
+const MAX_FRAMES = 500;
+const LSD_STEPS = 1;
+const RESET_FLOW_STATE_EACH_CHUNK = true;
+const RESET_MIMI_STATE_EACH_CHUNK = true;
+
+let currentLanguage = DEFAULT_LANGUAGE;
+let currentBundleDir = null;
+let bundleMetadata = null;
+let tokenizerProcessor = null;
+let tokenizerModelB64 = null;
+let bosBeforeVoice = null;
+
+let mimiEncoderSession = null;
+let textConditionerSession = null;
+let flowLmMainSession = null;
+let flowLmFlowSession = null;
+let mimiDecoderSession = null;
+
+let currentSampleRate = 24000;
+let currentSamplesPerFrame = 1920;
+let currentLatentDim = 32;
+let currentConditioningDim = 1024;
+let currentMaxTokenPerChunk = 50;
+
+let predefinedVoiceRecords = {};
+let customVoiceEmbedding = null;
+let currentVoiceName = null;
+let voiceConditioningCache = new Map();
+
+let stTensors = [];
+let isGenerating = false;
+let isReady = false;
+
+const HF_BASE = "https://huggingface.co/spaces/KevinAHM/pocket-tts-web/resolve/main/";
+const CACHE_NAME = "pocket-tts-hf-v1";
+
+function bundleDir(language) {
+    return `${HF_BASE}onnx/${language}`;
+}
+
+function bundlePath(language, filename) {
+    return `${bundleDir(language)}/${filename}`;
+}
+
+let lastProgressAt = 0;
+async function fetchCached(url, label) {
+    let cache = null;
+    try {
+        cache = await caches.open(CACHE_NAME);
+        const hit = await cache.match(url);
+        if (hit) {
+            postMessage({ type: "download", label, loaded: 1, total: 1, cached: true });
+            return await hit.arrayBuffer();
+        }
+    } catch (e) {
+        cache = null;
+    }
+    const res = await fetch(url, { mode: "cors" });
+    if (!res.ok) throw new Error(`Gagal mengunduh ${label} (HTTP ${res.status})`);
+    const total = Number(res.headers.get("content-length")) || 0;
+    const reader = res.body.getReader();
+    const parts = [];
+    let got = 0;
+    for (;;) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        parts.push(value);
+        got += value.length;
+        const now = performance.now();
+        if (now - lastProgressAt > 120) {
+            lastProgressAt = now;
+            postMessage({ type: "download", label, loaded: got, total });
+        }
+    }
+    const out = new Uint8Array(got);
+    let o = 0;
+    for (const p of parts) { out.set(p, o); o += p.length; }
+    postMessage({ type: "download", label, loaded: got, total: got });
+    try { if (cache) await cache.put(url, new Response(out)); } catch (e) { /* kuota penuh: abaikan */ }
+    return out.buffer;
+}
+
+let spModule = null;
+async function loadSentencePiece() {
+    if (spModule) return spModule;
+    const buf = await fetchCached(HF_BASE + "sentencepiece.js", "sentencepiece.js");
+    const url = URL.createObjectURL(new Blob([buf], { type: "text/javascript" }));
+    spModule = await import(url);
+    return spModule;
+}
+
+function debugLog(...args) {
+    if (DEBUG_LOGS) {
+        console.log(...args);
+    }
+}
+
+function makeFilledArray(shape, dtype, fill) {
+    const size = shape.reduce((a, b) => a * b, 1);
+    let data;
+
+    if (dtype === "int64") {
+        data = new BigInt64Array(size);
+    } else if (dtype === "bool") {
+        data = new Uint8Array(size);
+    } else {
+        data = new Float32Array(size);
+        if (fill === "nan") {
+            data.fill(NaN);
+        } else if (fill === "ones") {
+            data.fill(1);
+        }
+    }
+
+    return data;
+}
+
+function createTensor(dtype, data, dims) {
+    return new ort.Tensor(dtype, data, dims);
+}
+
+function initStateFromManifest(manifest) {
+    const state = {};
+    for (const entry of manifest) {
+        state[entry.input_name] = createTensor(
+            entry.dtype,
+            makeFilledArray(entry.shape, entry.dtype, entry.fill),
+            entry.shape
+        );
+    }
+    return state;
+}
+
+function cloneState(state) {
+    return { ...state };
+}
+
+function updateStateFromManifestOutputs(state, result, manifest) {
+    for (const entry of manifest) {
+        state[entry.input_name] = result[entry.output_name];
+    }
+}
+
+function groupVoiceRecordByModule(record) {
+    const grouped = {};
+    for (const [key, value] of Object.entries(record)) {
+        const slash = key.indexOf("/");
+        if (slash === -1) continue;
+        const moduleName = key.slice(0, slash);
+        const tensorKey = key.slice(slash + 1);
+        if (!grouped[moduleName]) {
+            grouped[moduleName] = {};
+        }
+        grouped[moduleName][tensorKey] = value;
+    }
+    return grouped;
+}
+
+function adaptTypedArray(source, entry) {
+    const targetShape = entry.shape;
+    const targetSize = targetShape.reduce((a, b) => a * b, 1);
+    const target = makeFilledArray(targetShape, entry.dtype, entry.fill);
+
+    if (source.shape.length === targetShape.length) {
+        const exactShape = source.shape.every((dim, idx) => dim === targetShape[idx]);
+        if (exactShape) {
+            if (entry.dtype === "int64") {
+                return new BigInt64Array(source.data);
+            }
+            if (entry.dtype === "bool") {
+                return new Uint8Array(source.data);
+            }
+            return new Float32Array(source.data);
+        }
+    }
+
+    if (source.data.length === targetSize) {
+        if (entry.dtype === "int64") {
+            return new BigInt64Array(source.data);
+        }
+        if (entry.dtype === "bool") {
+            return new Uint8Array(source.data);
+        }
+        return new Float32Array(source.data);
+    }
+
+    if (source.shape.length !== targetShape.length) {
+        return target;
+    }
+
+    const strides = [];
+    let stride = 1;
+    for (let i = source.shape.length - 1; i >= 0; i--) {
+        strides[i] = stride;
+        stride *= source.shape[i];
+    }
+
+    const indices = new Array(source.shape.length).fill(0);
+    const maxIndices = source.shape.map((dim, idx) => Math.min(dim, targetShape[idx]));
+
+    function targetIndex(coords) {
+        let idx = 0;
+        let tStride = 1;
+        for (let i = targetShape.length - 1; i >= 0; i--) {
+            idx += coords[i] * tStride;
+            tStride *= targetShape[i];
+        }
+        return idx;
+    }
+
+    let done = false;
+    while (!done) {
+        let sourceIdx = 0;
+        for (let i = 0; i < indices.length; i++) {
+            sourceIdx += indices[i] * strides[i];
+        }
+        target[targetIndex(indices)] = source.data[sourceIdx];
+
+        for (let dim = indices.length - 1; dim >= 0; dim--) {
+            indices[dim] += 1;
+            if (indices[dim] < maxIndices[dim]) {
+                break;
+            }
+            indices[dim] = 0;
+            if (dim === 0) {
+                done = true;
+            }
+        }
+    }
+
+    return target;
+}
+
+function deriveStep(moduleState) {
+    if (moduleState.step) {
+        return { data: BigInt64Array.from([BigInt(moduleState.step.data[0])]), shape: [1], dtype: "int64" };
+    }
+    if (moduleState.offset && !moduleState.end_offset) {
+        return { data: BigInt64Array.from([BigInt(moduleState.offset.data[0])]), shape: [1], dtype: "int64" };
+    }
+    if (moduleState.current_end) {
+        return { data: BigInt64Array.from([BigInt(moduleState.current_end.shape[0])]), shape: [1], dtype: "int64" };
+    }
+    return { data: BigInt64Array.from([0n]), shape: [1], dtype: "int64" };
+}
+
+function stateFromVoiceRecord(record) {
+    const grouped = groupVoiceRecordByModule(record);
+    const state = initStateFromManifest(bundleMetadata.flow_lm_state_manifest);
+
+    for (const entry of bundleMetadata.flow_lm_state_manifest) {
+        const moduleState = grouped[entry.module] || {};
+        let source = moduleState[entry.key];
+        if (!source && entry.key === "step") {
+            source = deriveStep(moduleState);
+        }
+        if (!source) {
+            continue;
+        }
+
+        const data = adaptTypedArray(source, entry);
+        state[entry.input_name] = createTensor(entry.dtype, data, entry.shape);
+    }
+
+    return state;
+}
+
+function prepareVoiceEmbeddingData(voiceEmb) {
+    let data = voiceEmb.data;
+    let dims = voiceEmb.shape.slice();
+
+    if (bundleMetadata.insert_bos_before_voice && bosBeforeVoice) {
+        const bosData = bosBeforeVoice.data;
+        const combined = new Float32Array(bosData.length + data.length);
+        combined.set(bosData, 0);
+        combined.set(data, bosData.length);
+        data = combined;
+        dims = [1, dims[1] + bosBeforeVoice.shape[1], dims[2]];
+    }
+
+    return createTensor("float32", data, dims);
+}
+
+async function buildVoiceConditionedState(voiceEmb) {
+    const flowLmState = initStateFromManifest(bundleMetadata.flow_lm_state_manifest);
+    const emptySeq = createTensor("float32", new Float32Array(0), [1, 0, currentLatentDim]);
+    const voiceTensor = prepareVoiceEmbeddingData(voiceEmb);
+
+    const result = await flowLmMainSession.run({
+        sequence: emptySeq,
+        text_embeddings: voiceTensor,
+        ...flowLmState,
+    });
+
+    updateStateFromManifestOutputs(flowLmState, result, bundleMetadata.flow_lm_state_manifest);
+    return flowLmState;
+}
+
+async function ensurePredefinedVoiceCached(voiceName, options = {}) {
+    const { force = false, statusText = "Preparing voice..." } = options;
+    if (!predefinedVoiceRecords[voiceName]) {
+        throw new Error(`Unknown built-in voice: ${voiceName}`);
+    }
+
+    if (!force && voiceConditioningCache.has(voiceName)) {
+        return voiceConditioningCache.get(voiceName);
+    }
+
+    postMessage({ type: "status", status: statusText, state: "loading" });
+    const conditioned = stateFromVoiceRecord(predefinedVoiceRecords[voiceName]);
+    voiceConditioningCache.set(voiceName, conditioned);
+    return conditioned;
+}
+
+async function ensureCustomVoiceCached(options = {}) {
+    const { force = false, statusText = "Preparing custom voice..." } = options;
+    if (!customVoiceEmbedding) {
+        throw new Error("No custom voice loaded.");
+    }
+
+    if (!force && voiceConditioningCache.has("custom")) {
+        return voiceConditioningCache.get("custom");
+    }
+
+    postMessage({ type: "status", status: statusText, state: "loading" });
+    const conditioned = await buildVoiceConditionedState(customVoiceEmbedding);
+    voiceConditioningCache.set("custom", conditioned);
+    return conditioned;
+}
+
+function parseNpyFloat32(buffer) {
+    const view = new DataView(buffer);
+    const magic = new Uint8Array(buffer, 0, 6);
+    const expected = [0x93, 0x4e, 0x55, 0x4d, 0x50, 0x59];
+    for (let i = 0; i < expected.length; i++) {
+        if (magic[i] !== expected[i]) {
+            throw new Error("Invalid NPY file");
+        }
+    }
+
+    const major = view.getUint8(6);
+    const headerLen = major === 1 ? view.getUint16(8, true) : view.getUint32(8, true);
+    const headerOffset = major === 1 ? 10 : 12;
+    const headerText = new TextDecoder().decode(new Uint8Array(buffer, headerOffset, headerLen));
+    const shapeMatch = headerText.match(/\(\s*([0-9,\s]+)\)/);
+    if (!shapeMatch) {
+        throw new Error("Could not parse NPY shape");
+    }
+    const shape = shapeMatch[1]
+        .split(",")
+        .map((part) => part.trim())
+        .filter(Boolean)
+        .map((part) => Number.parseInt(part, 10));
+    const dataOffset = headerOffset + headerLen;
+    const data = new Float32Array(buffer, dataOffset);
+    return { data: new Float32Array(data), shape };
+}
+
+function parseVoiceStatesBin(buffer) {
+    const view = new DataView(buffer);
+    let offset = 0;
+    const magic = new TextDecoder().decode(new Uint8Array(buffer, offset, 5));
+    offset += 5;
+    if (magic !== "PTVB1") {
+        throw new Error("Invalid voices.bin header");
+    }
+
+    const voices = {};
+    const voiceCount = view.getUint32(offset, true);
+    offset += 4;
+
+    for (let voiceIndex = 0; voiceIndex < voiceCount; voiceIndex++) {
+        const nameLen = view.getUint16(offset, true);
+        offset += 2;
+        const name = new TextDecoder().decode(new Uint8Array(buffer, offset, nameLen));
+        offset += nameLen;
+
+        const tensorCount = view.getUint16(offset, true);
+        offset += 2;
+        const tensors = {};
+
+        for (let tensorIndex = 0; tensorIndex < tensorCount; tensorIndex++) {
+            const keyLen = view.getUint16(offset, true);
+            offset += 2;
+            const key = new TextDecoder().decode(new Uint8Array(buffer, offset, keyLen));
+            offset += keyLen;
+
+            const dtypeCode = view.getUint8(offset);
+            offset += 1;
+            const rank = view.getUint8(offset);
+            offset += 1;
+
+            const shape = [];
+            for (let dimIndex = 0; dimIndex < rank; dimIndex++) {
+                shape.push(view.getUint32(offset, true));
+                offset += 4;
+            }
+
+            const byteLength = view.getUint32(offset, true);
+            offset += 4;
+
+            let data;
+            if (dtypeCode === 0) {
+                data = new Float32Array(buffer.slice(offset, offset + byteLength));
+            } else if (dtypeCode === 1) {
+                data = new BigInt64Array(buffer.slice(offset, offset + byteLength));
+            } else if (dtypeCode === 2) {
+                data = new Uint8Array(buffer.slice(offset, offset + byteLength));
+            } else {
+                throw new Error(`Unsupported voices.bin dtype code: ${dtypeCode}`);
+            }
+            offset += byteLength;
+
+            tensors[key] = {
+                data,
+                shape,
+                dtype: dtypeCode === 0 ? "float32" : dtypeCode === 1 ? "int64" : "bool",
+            };
+        }
+
+        voices[name] = tensors;
+    }
+
+    return voices;
+}
+
+async function encodeVoiceAudio(audioData) {
+    const input = createTensor("float32", audioData, [1, 1, audioData.length]);
+    const outputs = await mimiEncoderSession.run({ audio: input });
+    const embeddings = outputs[mimiEncoderSession.outputNames[0]];
+
+    let dims = embeddings.dims.slice();
+    let data = new Float32Array(embeddings.data);
+    while (dims.length > 3) {
+        if (dims[0] !== 1) break;
+        dims = dims.slice(1);
+    }
+    if (dims.length < 3) {
+        dims = [1, dims[0], dims[1]];
+    }
+
+    return { data, shape: dims };
+}
+
+function prepareTextPrompt(text) {
+    let prompt = text.trim();
+    if (!prompt) {
+        return { text: "", framesAfterEos: 1 };
+    }
+
+    prompt = prompt.replace(/\r/g, " ").replace(/\n/g, " ").replace(/\s+/g, " ");
+    if (bundleMetadata.remove_semicolons) {
+        prompt = prompt.replace(/;/g, ",");
+    }
+
+    const wordCount = prompt.split(/\s+/).filter(Boolean).length;
+    let framesAfterEos = wordCount <= 4 ? 3 : 1;
+    if (bundleMetadata.model_recommended_frames_after_eos != null) {
+        framesAfterEos = Number(bundleMetadata.model_recommended_frames_after_eos);
+    }
+
+    if (prompt && !/[A-ZÀ-Þ]/.test(prompt[0])) {
+        prompt = prompt[0].toUpperCase() + prompt.slice(1);
+    }
+    if (prompt && /[0-9A-Za-zÀ-ÿ]/.test(prompt[prompt.length - 1])) {
+        prompt += ".";
+    }
+    if (bundleMetadata.pad_with_spaces_for_short_inputs && wordCount < 5) {
+        prompt = "        " + prompt;
+    }
+
+    return { text: prompt, framesAfterEos };
+}
+
+const SENTENCE_SPLIT_RE = /[^.!?]+[.!?]+|[^.!?]+$/g;
+
+function splitTextIntoSentences(text) {
+    const matches = text.match(SENTENCE_SPLIT_RE);
+    if (!matches) return [];
+    return matches.map((sentence) => sentence.trim()).filter(Boolean);
+}
+
+function splitTokenIdsIntoChunks(tokenIds, maxTokens) {
+    const chunks = [];
+    for (let i = 0; i < tokenIds.length; i += maxTokens) {
+        const chunkText = tokenizerProcessor.decodeIds(tokenIds.slice(i, i + maxTokens)).trim();
+        if (chunkText) {
+            chunks.push(chunkText);
+        }
+    }
+    return chunks;
+}
+
+function splitIntoBestSentences(text) {
+    const prepared = prepareTextPrompt(text);
+    if (!prepared.text) {
+        return { chunks: [], framesAfterEos: prepared.framesAfterEos };
+    }
+
+    const sentences = splitTextIntoSentences(prepared.text);
+    if (!sentences.length) {
+        return { chunks: [prepared.text], framesAfterEos: prepared.framesAfterEos };
+    }
+
+    const chunks = [];
+    let currentChunk = "";
+
+    for (const sentenceText of sentences) {
+        const sentenceTokenIds = tokenizerProcessor.encodeIds(sentenceText);
+        const sentenceTokens = sentenceTokenIds.length;
+
+        if (sentenceTokens > currentMaxTokenPerChunk) {
+            if (currentChunk) {
+                chunks.push(currentChunk.trim());
+                currentChunk = "";
+            }
+            const splitChunks = splitTokenIdsIntoChunks(sentenceTokenIds, currentMaxTokenPerChunk);
+            for (const splitChunk of splitChunks) {
+                if (splitChunk) {
+                    chunks.push(splitChunk.trim());
+                }
+            }
+            continue;
+        }
+
+        if (!currentChunk) {
+            currentChunk = sentenceText;
+            continue;
+        }
+
+        const combined = `${currentChunk} ${sentenceText}`;
+        const combinedTokens = tokenizerProcessor.encodeIds(combined).length;
+        if (combinedTokens > currentMaxTokenPerChunk) {
+            chunks.push(currentChunk.trim());
+            currentChunk = sentenceText;
+        } else {
+            currentChunk = combined;
+        }
+    }
+
+    if (currentChunk) {
+        chunks.push(currentChunk.trim());
+    }
+
+    return { chunks, framesAfterEos: prepared.framesAfterEos };
+}
+
+function precomputeFlowBuffers() {
+    stTensors = [];
+    const dt = 1.0 / LSD_STEPS;
+    for (let step = 0; step < LSD_STEPS; step++) {
+        const s = step / LSD_STEPS;
+        const t = s + dt;
+        stTensors.push({
+            s: createTensor("float32", new Float32Array([s]), [1, 1]),
+            t: createTensor("float32", new Float32Array([t]), [1, 1]),
+        });
+    }
+}
+
+async function loadOrt() {
+    if (ort) {
+        return;
+    }
+
+    postMessage({ type: "status", status: "Memuat ONNX Runtime…", state: "loading" });
+    const version = "1.20.0";
+    const cdnBase = `https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/`;
+    const ortModule = await import(`https://cdn.jsdelivr.net/npm/onnxruntime-web@${version}/dist/ort.min.mjs`);
+    ort = ortModule.default || ortModule;
+    ort.env.wasm.wasmPaths = cdnBase;
+    ort.env.wasm.simd = true;
+    ort.env.wasm.numThreads = self.crossOriginIsolated
+        ? Math.min(navigator.hardwareConcurrency || 4, 8)
+        : 1;
+    precomputeFlowBuffers();
+}
+
+async function releaseSession(session) {
+    if (!session) {
+        return;
+    }
+    if (typeof session.release === "function") {
+        await session.release();
+    }
+}
+
+const SESSION_OPTIONS = { executionProviders: ["wasm"], graphOptimizationLevel: "all" };
+
+async function createSession(language, stem, label) {
+    const buf = await fetchCached(bundlePath(language, stem), label);
+    postMessage({ type: "status", status: `Menyiapkan ${label}…`, state: "loading" });
+    return ort.InferenceSession.create(new Uint8Array(buf), SESSION_OPTIONS);
+}
+
+async function ensureEncoder() {
+    if (mimiEncoderSession) return;
+    mimiEncoderSession = await createSession(currentLanguage, MODEL_STEMS.mimi_encoder, "mimi_encoder");
+}
+
+async function loadBundle(language) {
+    if (!LANGUAGE_BUNDLES.includes(language)) {
+        throw new Error(`Paket bahasa tidak dikenal: ${language}`);
+    }
+    await loadOrt();
+    isReady = false;
+    postMessage({ type: "status", status: `Memuat paket ${language}…`, state: "loading" });
+
+    const metaBuf = await fetchCached(bundlePath(language, "bundle.json"), "bundle.json");
+    bundleMetadata = JSON.parse(new TextDecoder().decode(metaBuf));
+    currentLanguage = language;
+    currentSampleRate = Number(bundleMetadata.sample_rate);
+    currentSamplesPerFrame = Number(bundleMetadata.samples_per_frame);
+    currentLatentDim = Number(bundleMetadata.latent_dim);
+    currentConditioningDim = Number(bundleMetadata.conditioning_dim);
+    currentMaxTokenPerChunk = Number(bundleMetadata.max_token_per_chunk || 50);
+
+    await Promise.all([
+        releaseSession(mimiEncoderSession),
+        releaseSession(textConditionerSession),
+        releaseSession(flowLmMainSession),
+        releaseSession(flowLmFlowSession),
+        releaseSession(mimiDecoderSession),
+    ]);
+    mimiEncoderSession = null; // dimuat saat dibutuhkan (kloning suara)
+
+    textConditionerSession = await createSession(language, MODEL_STEMS.text_conditioner, "text_conditioner");
+    flowLmMainSession = await createSession(language, MODEL_STEMS.flow_lm_main, "flow_lm_main");
+    flowLmFlowSession = await createSession(language, MODEL_STEMS.flow_lm_flow, "flow_lm_flow");
+    mimiDecoderSession = await createSession(language, MODEL_STEMS.mimi_decoder, "mimi_decoder");
+
+    const tokBuf = await fetchCached(bundlePath(language, bundleMetadata.tokenizer_file), "tokenizer");
+    const tokBytes = new Uint8Array(tokBuf);
+    let bin = "";
+    for (let i = 0; i < tokBytes.length; i += 0x8000) {
+        bin += String.fromCharCode.apply(null, tokBytes.subarray(i, i + 0x8000));
+    }
+    tokenizerModelB64 = btoa(bin);
+    const spm = await loadSentencePiece();
+    tokenizerProcessor = new spm.SentencePieceProcessor();
+    await tokenizerProcessor.loadFromB64StringModel(tokenizerModelB64);
+
+    bosBeforeVoice = null;
+    if (bundleMetadata.bos_before_voice_file) {
+        try {
+            const bosBuf = await fetchCached(bundlePath(language, bundleMetadata.bos_before_voice_file), "bos");
+            bosBeforeVoice = parseNpyFloat32(bosBuf);
+        } catch (e) { console.warn("bos_before_voice gagal dimuat", e); }
+    }
+
+    predefinedVoiceRecords = {};
+    try {
+        const vBuf = await fetchCached(bundlePath(language, "voices.bin"), "voices.bin");
+        predefinedVoiceRecords = parseVoiceStatesBin(vBuf);
+    } catch (e) { console.warn("voices.bin gagal dimuat", e); }
+
+    voiceConditioningCache = new Map();
+    let defaultVoice = bundleMetadata.predefined_voices?.includes("alba") ? "alba" : null;
+    if (!defaultVoice) defaultVoice = Object.keys(predefinedVoiceRecords)[0] || null;
+    currentVoiceName = defaultVoice;
+    if (defaultVoice) {
+        await ensurePredefinedVoiceCached(defaultVoice, { force: true, statusText: `Menyiapkan suara (${defaultVoice})…` });
+    }
+
+    isReady = true;
+    postMessage({
+        type: "voices_loaded",
+        voices: Object.keys(predefinedVoiceRecords),
+        defaultVoice,
+        language,
+    });
+    postMessage({ type: "bundle_loaded", language, sampleRate: currentSampleRate });
+}
+
+self.onmessage = async (e) => {
+    const { type, data } = e.data;
+    try {
+        if (type === "load_bundle") {
+            if (isGenerating) throw new Error("Tidak bisa ganti paket saat sedang membuat suara.");
+            await loadBundle(data.language);
+            return;
+        }
+        if (type === "stop") {
+            isGenerating = false;
+            return;
+        }
+        if (!isReady) throw new Error("Model belum dimuat.");
+
+        if (type === "encode_voice") {
+            await ensureEncoder();
+            customVoiceEmbedding = await encodeVoiceAudio(data.audio);
+            voiceConditioningCache.delete("custom");
+            await ensureCustomVoiceCached({ force: true, statusText: "Menyiapkan suara sendiri…" });
+            postMessage({ type: "voice_encoded", voiceName: "custom" });
+            return;
+        }
+        if (type === "generate") {
+            if (isGenerating) return;
+            await startGeneration(data.text, data.voice || currentVoiceName);
+        }
+    } catch (err) {
+        console.error("Worker error:", err);
+        postMessage({ type: "error", error: (err && err.message) || String(err) });
+    }
+};
+
+async function startGeneration(text, voiceName) {
+    isGenerating = true;
+    postMessage({ type: "status", status: "Generating...", state: "running" });
+    postMessage({ type: "generation_started", data: { time: performance.now() } });
+
+    try {
+        const { chunks, framesAfterEos } = splitIntoBestSentences(text);
+        if (!chunks.length) {
+            throw new Error("No text to generate");
+        }
+
+        if (voiceName === "custom") {
+            await ensureCustomVoiceCached({ statusText: "Preparing custom voice..." });
+        } else {
+            await ensurePredefinedVoiceCached(voiceName, {
+                statusText: `Preparing voice (${voiceName})...`,
+            });
+        }
+        currentVoiceName = voiceName;
+
+        await runGenerationPipeline(voiceName, chunks, framesAfterEos);
+    } catch (err) {
+        console.error("Generation error:", err);
+        postMessage({ type: "error", error: err.toString() });
+    } finally {
+        if (isGenerating) {
+            postMessage({ type: "stream_ended" });
+            postMessage({ type: "status", status: "Finished", state: "idle" });
+        }
+        isGenerating = false;
+    }
+}
+
+async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
+    let mimiState = initStateFromManifest(bundleMetadata.mimi_state_manifest);
+    const emptySeq = createTensor("float32", new Float32Array(0), [1, 0, currentLatentDim]);
+    const emptyTextEmb = createTensor("float32", new Float32Array(0), [1, 0, currentConditioningDim]);
+    const baseFlowState = voiceConditioningCache.get(voiceName);
+    if (!baseFlowState) {
+        throw new Error(`Voice conditioning cache missing for '${voiceName}'.`);
+    }
+    let flowLmState = cloneState(baseFlowState);
+
+    const firstChunkFrames = 3;
+    const normalChunkFrames = 12;
+    const allGeneratedLatents = [];
+    let isFirstAudioChunk = true;
+    let totalFlowLmTime = 0;
+    let totalDecodeTime = 0;
+    const generationStart = performance.now();
+
+    for (let chunkIdx = 0; chunkIdx < chunks.length; chunkIdx++) {
+        if (!isGenerating) break;
+
+        if (RESET_FLOW_STATE_EACH_CHUNK && chunkIdx > 0) {
+            flowLmState = cloneState(baseFlowState);
+        }
+        if (RESET_MIMI_STATE_EACH_CHUNK && chunkIdx > 0) {
+            mimiState = initStateFromManifest(bundleMetadata.mimi_state_manifest);
+        }
+
+        const chunkText = chunks[chunkIdx];
+        let isFirstAudioChunkOfTextChunk = true;
+        const tokenIds = tokenizerProcessor.encodeIds(chunkText);
+        const textInput = createTensor(
+            "int64",
+            BigInt64Array.from(tokenIds.map((token) => BigInt(token))),
+            [1, tokenIds.length]
+        );
+
+        let textEmb = (await textConditionerSession.run({ token_ids: textInput }))[textConditionerSession.outputNames[0]];
+        if (textEmb.dims.length === 2) {
+            textEmb = createTensor("float32", new Float32Array(textEmb.data), [1, textEmb.dims[0], textEmb.dims[1]]);
+        }
+
+        const condResult = await flowLmMainSession.run({
+            sequence: emptySeq,
+            text_embeddings: textEmb,
+            ...flowLmState,
+        });
+        updateStateFromManifestOutputs(flowLmState, condResult, bundleMetadata.flow_lm_state_manifest);
+
+        const chunkLatents = [];
+        let chunkDecodedFrames = 0;
+        let currentLatent = createTensor("float32", new Float32Array(currentLatentDim).fill(NaN), [1, 1, currentLatentDim]);
+        let eosStep = null;
+        let chunkEnded = false;
+        let chunkGenTimeMs = 0;
+
+        for (let step = 0; step < MAX_FRAMES; step++) {
+            if (!isGenerating) break;
+            if (step > 0 && step % 4 === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 0));
+            }
+
+            const stepStart = performance.now();
+            const arResult = await flowLmMainSession.run({
+                sequence: currentLatent,
+                text_embeddings: emptyTextEmb,
+                ...flowLmState,
+            });
+            const stepElapsed = performance.now() - stepStart;
+            chunkGenTimeMs += stepElapsed;
+            totalFlowLmTime += stepElapsed;
+
+            const conditioning = arResult.conditioning;
+            const eosLogit = arResult.eos_logit.data[0];
+            const isEos = eosLogit > -4.0;
+            if (isEos && eosStep == null) {
+                eosStep = step;
+            }
+            const shouldStop = eosStep != null && step >= eosStep + framesAfterEos;
+
+            const temperature = 0.7;
+            const std = Math.sqrt(temperature);
+            const latentData = new Float32Array(currentLatentDim);
+            for (let i = 0; i < currentLatentDim; i++) {
+                let u = 0;
+                let v = 0;
+                while (u === 0) u = Math.random();
+                while (v === 0) v = Math.random();
+                latentData[i] = Math.sqrt(-2.0 * Math.log(u)) * Math.cos(2.0 * Math.PI * v) * std;
+            }
+
+            const dt = 1.0 / LSD_STEPS;
+            for (let lsdIndex = 0; lsdIndex < LSD_STEPS; lsdIndex++) {
+                const flowResult = await flowLmFlowSession.run({
+                    c: conditioning,
+                    s: stTensors[lsdIndex].s,
+                    t: stTensors[lsdIndex].t,
+                    x: createTensor("float32", latentData, [1, currentLatentDim]),
+                });
+                const flowDir = flowResult.flow_dir.data;
+                for (let i = 0; i < currentLatentDim; i++) {
+                    latentData[i] += flowDir[i] * dt;
+                }
+            }
+
+            chunkLatents.push(new Float32Array(latentData));
+            allGeneratedLatents.push(new Float32Array(latentData));
+            currentLatent = createTensor("float32", latentData, [1, 1, currentLatentDim]);
+            updateStateFromManifestOutputs(flowLmState, arResult, bundleMetadata.flow_lm_state_manifest);
+
+            const pending = chunkLatents.length - chunkDecodedFrames;
+            let decodeSize = 0;
+            if (shouldStop) {
+                decodeSize = pending;
+            } else if (isFirstAudioChunk && pending >= firstChunkFrames) {
+                decodeSize = firstChunkFrames;
+            } else if (pending >= normalChunkFrames) {
+                decodeSize = normalChunkFrames;
+            }
+
+            if (decodeSize > 0) {
+                const decodeLatents = new Float32Array(decodeSize * currentLatentDim);
+                for (let frame = 0; frame < decodeSize; frame++) {
+                    decodeLatents.set(chunkLatents[chunkDecodedFrames + frame], frame * currentLatentDim);
+                }
+
+                const decoderStart = performance.now();
+                const decodeResult = await mimiDecoderSession.run({
+                    latent: createTensor("float32", decodeLatents, [1, decodeSize, currentLatentDim]),
+                    ...mimiState,
+                });
+                const decoderElapsed = performance.now() - decoderStart;
+                chunkGenTimeMs += decoderElapsed;
+                totalDecodeTime += decoderElapsed;
+
+                for (const entry of bundleMetadata.mimi_state_manifest) {
+                    mimiState[entry.input_name] = decodeResult[entry.output_name];
+                }
+
+                chunkDecodedFrames += decodeSize;
+                const audioFloat32 = new Float32Array(decodeResult[mimiDecoderSession.outputNames[0]].data);
+                const isLastChunk = shouldStop && chunkIdx === chunks.length - 1;
+
+                postMessage({
+                    type: "audio_chunk",
+                    data: audioFloat32,
+                    metrics: {
+                        bbTime: 0,
+                        decTime: 0,
+                        chunkDuration: audioFloat32.length / currentSampleRate,
+                        genTimeSec: chunkGenTimeMs / 1000,
+                        isFirst: isFirstAudioChunk,
+                        isLast: isLastChunk,
+                        chunkStart: isFirstAudioChunkOfTextChunk,
+                    },
+                }, [audioFloat32.buffer]);
+
+                isFirstAudioChunk = false;
+                isFirstAudioChunkOfTextChunk = false;
+                chunkGenTimeMs = 0;
+            }
+
+            if (shouldStop) {
+                chunkEnded = true;
+                break;
+            }
+        }
+
+        if (chunkEnded && isGenerating && chunkIdx < chunks.length - 1) {
+            const gapSamples = Math.max(1, Math.floor(CHUNK_GAP_SEC * currentSampleRate));
+            const silence = new Float32Array(gapSamples);
+            postMessage({
+                type: "audio_chunk",
+                data: silence,
+                metrics: {
+                    bbTime: 0,
+                    decTime: 0,
+                    chunkDuration: gapSamples / currentSampleRate,
+                    isFirst: false,
+                    isLast: false,
+                    isSilence: true,
+                },
+            }, [silence.buffer]);
+        }
+    }
+
+    const totalTime = (performance.now() - generationStart) / 1000;
+    const audioSeconds = allGeneratedLatents.length * currentSamplesPerFrame / currentSampleRate;
+    const genTime = (totalFlowLmTime + totalDecodeTime) / 1000;
+    const rtfx = genTime > 0 ? audioSeconds / genTime : 0;
+
+    debugLog(`Generation complete for ${voiceName} in ${totalTime.toFixed(2)}s (RTFx ${rtfx.toFixed(2)}x)`);
+    postMessage({
+        type: "status",
+        status: `Finished (RTFx: ${rtfx.toFixed(2)}x)`,
+        state: "idle",
+        metrics: { rtfx, genTime, totalTime, audioDuration: audioSeconds },
+    });
+}
+
+</script>
 <script>
 (function(){
 var KEY="suara-lib-v2",PK="suara-prog-v2",CH=2000,items=[],prog={},tab="all";
@@ -606,63 +1561,87 @@ function wavBlob(d,sr){var n=d.length,buf=new ArrayBuffer(44+n*2),w=new DataView
   for(i=0;i<n;i++){var x=Math.max(-1,Math.min(1,d[i]));w.setInt16(44+i*2,x<0?x*32768:x*32767,true)}
   return new Blob([buf],{type:"audio/wav"})}
 /* Piper & Pocket di perangkat (WASM). Gagal -> otomatis kembali ke server. */
-var PIPER_URLS=["https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.4/+esm","https://cdn.jsdelivr.net/npm/@diffusionstudio/vits-web@1.0.3/+esm"];
+/* Piper: library dikunci ke onnxruntime-web 1.18.0 (sama dengan awalan.html). Kalau sumber pertama gagal (backend/wasm/import), coba sumber berikutnya. */
+var PIPER_URLS=["https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5?deps=onnxruntime-web@1.18.0","https://esm.sh/@mintplex-labs/piper-tts-web@1.0.5","https://cdn.jsdelivr.net/npm/@mintplex-labs/piper-tts-web@1.0.5/+esm"],piperIdx=0;
 var LOC={piper:lsGet("ploc"),pocket:false,supertonic:false},locBad={},locMod={};
 function lsGet(k){try{return localStorage.getItem(KEY+"-"+k)==="1"}catch(e){}return false}
 function locOn(e){return !!LOC[e]&&!locBad[e]}
 function lsSet(k,on){try{localStorage.setItem(KEY+"-"+k,on?"1":"0")}catch(e){}}
-function piperLoad(){if(!locMod.piper)locMod.piper=importAny(PIPER_URLS).catch(function(e){locMod.piper=null;throw e});return locMod.piper}
-function piperLocalGen(id,text){return piperLoad().then(function(m){
+function piperLoad(){
+  if(!locMod.piper)locMod.piper=(async function(){
+    var last;
+    for(;piperIdx<PIPER_URLS.length;piperIdx++){
+      try{return await import(PIPER_URLS[piperIdx])}catch(e){last=e;console.warn("Gagal memuat library Piper dari",PIPER_URLS[piperIdx],e)}}
+    piperIdx=0;throw last||new Error("library Piper tidak bisa dimuat")})().catch(function(e){locMod.piper=null;throw e});
+  return locMod.piper}
+function piperRotate(e){   // true bila ada sumber library lain yang layak dicoba
+  var msg=String((e&&e.message)||e);
+  if(/backend|dynamically imported|wasm/i.test(msg)&&piperIdx<PIPER_URLS.length-1){piperIdx++;locMod.piper=null;return true}
+  return false}
+function piperDevDownload(id,on,tries){tries=tries||0;   // unduh suara Piper ke browser (disimpan oleh library di OPFS/Cache browser)
+  on("Memuat library Piper…");
+  return piperLoad().then(function(m){return m.download(id,function(p){if(p&&p.total)on("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%")})})
+    .catch(function(e){if(tries<PIPER_URLS.length&&piperRotate(e))return piperDevDownload(id,on,tries+1);throw e})}
+function piperLocalGen(id,text,tries){tries=tries||0;return piperLoad().then(function(m){
   return Promise.resolve(m.stored?m.stored():[]).catch(function(){return []}).then(function(st){
-    var pre=st.indexOf(id)>=0?Promise.resolve():m.download(id,function(p){if(p&&p.total)toast("Mengunduh suara Piper… "+Math.round(p.loaded/p.total*100)+"%",true)}).then(function(){toast("Suara Piper siap")});
-    return pre.then(function(){return m.predict({text:text,voiceId:id})})})})}
-/* Pocket TTS di perangkat: paket pocket-tts-js (onnxruntime-web + Web Worker). Paket disajikan server dari origin yang sama
-   (/api/pocket-device/entry), karena browser menolak Web Worker dari CDN lintas-origin. */
-var POC_WORD={en:"english",de:"german",es:"spanish",it:"italian",pt:"portuguese",fr:"french"},   // bahasa yang punya bundel di perangkat
-  POC_TEST={en:"alba",de:"juergen",es:"lola",it:"giovanni",pt:"rafael",fr:"estelle"},
-  pocDev={mod:null,inst:{},okShown:false};
+    var pre=st.indexOf(id)>=0?Promise.resolve():m.download(id,function(p){if(p&&p.total)toast("Mengunduh suara Piper ke perangkat… "+Math.round(p.loaded/p.total*100)+"%",true)}).then(function(){toast("Suara Piper siap")});
+    return pre.then(function(){return m.predict({text:text,voiceId:id})})})})
+  .catch(function(e){if(tries<PIPER_URLS.length&&piperRotate(e))return piperLocalGen(id,text,tries+1);throw e})}
+/* Pocket TTS di perangkat: Web Worker mandiri (kode di <script id="pocketWorkerSrc">, sama dengan awalan.html; onnxruntime-web 1.20.0 dari CDN).
+   Model, tokenizer, dan voices.bin diunduh browser dari Hugging Face (KevinAHM/pocket-tts-web) dan disimpan di Cache API ("pocket-tts-hf-v1"). Tanpa server. */
+var POC_BUNDLE={en:"english_2026-04",de:"german",it:"italian",pt:"portuguese",es:"spanish"},   // bahasa yang punya paket di perangkat
+  POC_TEST={en:"alba",de:"juergen",es:"lola",it:"giovanni",pt:"rafael"},
+  pocDev={worker:null,bundle:null,sr:24000,voices:[],okShown:false,q:Promise.resolve()};
 LOC.pocket=lsGet("pocloc");
 function devMsg(e){return String((e&&e.message)||e||"penyebab tidak diketahui").replace(/\s+/g," ").slice(0,110)}
-function pocketDevModule(){
-  if(!pocDev.mod)pocDev.mod=Promise.resolve().then(function(){
+function pocWorker(){
+  if(!pocDev.worker){
     if(typeof WebAssembly==="undefined"||typeof Worker==="undefined")throw new Error("browser ini tidak mendukung WebAssembly/Web Worker");
-    return fetch("/api/pocket-device/entry")}).then(function(r){return r.json().then(function(j){if(!r.ok||j.error)throw new Error(j.error||("HTTP "+r.status));return j})})
-  .then(function(j){return import(j.entry)}).then(function(m){if(!m||!m.PocketTTS)throw new Error("modul Pocket di perangkat tidak valid");return m})
-  .catch(function(e){pocDev.mod=null;throw e});
-  return pocDev.mod}
-function pocketBundle(m,lang){   // nama bundel bahasa dicari dari PocketTTS.LANGUAGES (bisa array atau objek), diawali kata bahasanya
-  var w=POC_WORD[lang];if(!w)return null;var L=m.PocketTTS.LANGUAGES,names=[];
-  if(Array.isArray(L))names=L.map(function(x){return typeof x==="string"?x:x&&(x.id||x.name||x.key)});else if(L&&typeof L==="object")names=Object.keys(L);
-  names=names.filter(function(n){return typeof n==="string"&&n.toLowerCase().indexOf(w)===0}).sort();
-  return names.length?names[names.length-1]:null}
-function pocketDevInst(lang){
-  return pocketDevModule().then(function(m){
-    var b=pocketBundle(m,lang);
-    if(!b){var e=new Error("bahasa '"+lang+"' belum tersedia untuk Pocket di perangkat");e.unsupported=true;throw e}
-    if(!pocDev.inst[b]){
-      var t=new m.PocketTTS({language:b,quantized:true,voiceCloning:false});
-      pocDev.inst[b]=t.load(function(p){if(p&&p.total)toast("Mengunduh Pocket ("+lang+") ke perangkat… "+Math.round(p.loaded/p.total*100)+"%",true)})
-        .then(function(){return {tts:t,voices:{}}}).catch(function(e){pocDev.inst[b]=null;try{t.destroy()}catch(x){}throw e})}
-    return pocDev.inst[b]})}
+    var url=URL.createObjectURL(new Blob([$("pocketWorkerSrc").textContent],{type:"text/javascript"}));
+    pocDev.worker=new Worker(url,{type:"module"})}
+  return pocDev.worker}
+function pocCall(msg,doneType,onAudio,onProg){   // satu perintah ke worker, diantre supaya tidak saling menimpa
+  var run=function(){return new Promise(function(res,rej){
+    var w;try{w=pocWorker()}catch(e){return rej(e)}
+    w.onerror=function(ev){try{w.terminate()}catch(x){}pocDev.worker=null;pocDev.bundle=null;rej(new Error(ev.message||"Worker Pocket gagal dimulai"))};
+    w.onmessage=function(ev){var m=ev.data||{};
+      if(m.type==="download"){if(onProg)onProg(m)}
+      else if(m.type==="status"){if(onProg&&m.state==="loading")onProg({status:m.status})}
+      else if(m.type==="voices_loaded"){pocDev.voices=m.voices||[]}
+      else if(m.type==="audio_chunk"){if(onAudio)onAudio(m.data)}
+      else if(m.type==="error"){rej(new Error(m.error))}
+      else if(m.type===doneType){res(m)}};
+    w.postMessage(msg)})};
+  var p=pocDev.q.then(run,run);pocDev.q=p.catch(function(){});return p}
+function pocProg(tag,sink){var last=0;return function(m){   // sink(teks, persen|null)
+  var t=Date.now();if(m.cached||t-last<250)return;last=t;
+  if(m.total)sink("Mengunduh Pocket ("+tag+") ke perangkat… "+m.label+" "+Math.round(m.loaded/m.total*100)+"%  ("+(m.loaded/1e6).toFixed(0)+"/"+(m.total/1e6).toFixed(0)+" MB)");
+  else if(m.status)sink("Pocket ("+tag+"): "+m.status)}}
+function pocEnsure(lang,sink){   // memuat (dan mengunduh bila perlu) paket bahasa ke dalam worker
+  var b=POC_BUNDLE[lang];
+  if(!b){var e=new Error("bahasa '"+lang+"' belum tersedia untuk Pocket di perangkat");e.unsupported=true;return Promise.reject(e)}
+  if(pocDev.bundle===b)return Promise.resolve(b);
+  pocDev.bundle=null;
+  return pocCall({type:"load_bundle",data:{language:b}},"bundle_loaded",null,pocProg(lang,sink||function(t){toast(t,true)})).then(function(m){pocDev.bundle=b;pocDev.sr=m.sampleRate||24000;return b})}
+function pocketDevDownload(lang,on){return pocEnsure(lang,function(t){on(t)}).then(function(){})}
 function pocketLocalGen(id,text,lang){
-  return pocketDevInst(lang).then(function(I){
-    var t=I.tts,vp=I.voices[id]||(I.voices[id]=t.loadVoice(id).catch(function(e){delete I.voices[id];var x=new Error("suara '"+id+"' tidak tersedia di perangkat untuk bahasa '"+lang+"' ("+devMsg(e)+")");x.voiceErr=true;throw x}));
-    return vp.then(function(voice){
-      var chunks=[],n=0;
-      return t.generate(text,{voice:voice,onChunk:function(a){var c=new Float32Array(a);chunks.push(c);n+=c.length}}).then(function(){
-        if(!n)throw new Error("tidak ada audio yang dihasilkan");
-        var all=new Float32Array(n),o=0;chunks.forEach(function(c){all.set(c,o);o+=c.length});
-        return wavBlob(all,t.sampleRate||24000)})})})}
+  return pocEnsure(lang).then(function(){
+    if(pocDev.voices.indexOf(id)<0){var x=new Error("suara '"+id+"' tidak tersedia di perangkat untuk bahasa '"+lang+"'");x.voiceErr=true;throw x}
+    var chunks=[],n=0;
+    return pocCall({type:"generate",data:{text:text,voice:id}},"stream_ended",function(pcm){chunks.push(pcm);n+=pcm.length}).then(function(){
+      if(!n)throw new Error("tidak ada audio yang dihasilkan");
+      var all=new Float32Array(n),o=0;chunks.forEach(function(c){all.set(c,o);o+=c.length});
+      return wavBlob(all,pocDev.sr)})})}
 /* Uji sungguhan (muat model + buat satu kalimat pendek) sebelum Pocket di perangkat dianggap aktif */
 function pocketDevTest(){
-  var m=$("ml"),l=pl(vlang((m&&m.value)||(cur&&cur.lang)||"en"));if(!POC_WORD[l])l="en";
+  var m=$("ml"),l=pl(vlang((m&&m.value)||(cur&&cur.lang)||"en"));if(!POC_BUNDLE[l])l="en";
   toast("Menguji Pocket di perangkat… (model ±125-200 MB diunduh bila belum ada)",true);
   return pocketLocalGen(POC_TEST[l],"Test.",l).then(function(b){if(!b||!b.size)throw new Error("hasil audio kosong");return l})}
 function setWhereTxt(t){var e=$("engwhere");if(e)e.textContent=t}
-function pocketDevFail(e){   // perangkat gagal -> kembalikan ke server (kotak centang dimatikan) dan beri peringatan
+function pocketDevFail(e){try{console.error("[Pocket di perangkat] gagal:",e)}catch(x){}   // perangkat gagal -> kembalikan ke server (kotak centang dimatikan) dan beri peringatan
   locBad.pocket=true;LOC.pocket=false;lsSet("pocloc",0);var c=$("pocloc");if(c)c.checked=false;
   setWhereTxt("Pocket: ⚠️ di server (perangkat gagal)");
-  toast("⚠️ Pocket gagal dijalankan di perangkat ini ("+devMsg(e)+"). Dikembalikan ke server; kotak centang dimatikan.");voices();voices2()}
+  toast("⚠️ Pocket gagal dijalankan di perangkat ini ("+String((e&&e.message)||e).replace(/\s+/g," ").slice(0,220)+"). Dikembalikan ke server; kotak centang dimatikan. Detail di Console (F12).");voices();voices2()}
 /* Supertonic di perangkat: onnxruntime-web (WASM) di thread utama, tanpa server. Model diunduh dari Hugging Face lalu disimpan di
    Cache API browser. Alur sama dengan halaman awalan: duration_predictor -> text_encoder -> vector_estimator (diulang per langkah) -> vocoder. */
 var SUP_ORT="https://cdn.jsdelivr.net/npm/onnxruntime-web@1.22.0/dist/",
@@ -704,7 +1683,7 @@ async function supEngine(){
   var ort=await supOrt(),m=SUP_MODELS[key],names=["duration_predictor","text_encoder","vector_estimator","vocoder"],
     expected=names.reduce(function(a,n){return a+m.approx[n]},0)+0.6e6,got=0,last=0;
   try{navigator.storage&&navigator.storage.persist&&navigator.storage.persist().catch(function(){})}catch(e){}
-  var onBytes=function(n){got+=n;var t=Date.now();if(t-last>400){last=t;toast("Mengunduh Supertonic ke perangkat… "+(got/1e6).toFixed(0)+" / ±"+(expected/1e6).toFixed(0)+" MB",true)}};
+  var onBytes=function(n){got+=n;var t=Date.now();if(supDev.sink&&t-last>250)supDev.sink("Mengunduh Supertonic… "+Math.min(99,Math.round(got/expected*100))+"%");if(t-last>400){last=t;if(!supDev.sink)toast("Mengunduh Supertonic ke perangkat… "+(got/1e6).toFixed(0)+" / ±"+(expected/1e6).toFixed(0)+" MB",true)}};
   var cb=await Promise.all([supFetch(m.base+"onnx/tts.json",onBytes),supFetch(m.base+"onnx/unicode_indexer.json",onBytes)]);
   var dec=new TextDecoder(),raw=JSON.parse(dec.decode(cb[0])),indexer=JSON.parse(dec.decode(cb[1]));
   var cfg={sampleRate:(raw.ae&&raw.ae.sample_rate)||44100,baseChunk:(raw.ae&&raw.ae.base_chunk_size)||512,
@@ -780,6 +1759,7 @@ async function superLocalGen(voice,text,lang){
   if(!n)throw new Error("tidak ada audio yang dihasilkan");
   var all=new Float32Array(n),o=0;bufs.forEach(function(b,i){all.set(b,o);o+=b.length+(i<bufs.length-1?gap:0)});
   return wavBlob(all,E.cfg.sampleRate)}
+function superDevDownload(on){supDev.sink=on;on("Memuat Supertonic…");return supEngine().then(function(){supDev.sink=null},function(e){supDev.sink=null;throw e})}
 function superDevTest(){toast("Menguji Supertonic di perangkat… (model ±111-400 MB diunduh bila belum ada)",true);
   return superLocalGen("F1","Test.","en").then(function(b){if(!b||!b.size)throw new Error("hasil audio kosong")})}
 function superDevFail(e){
@@ -807,7 +1787,7 @@ function devJob(v,text,lang){   // jalankan di perangkat bila dipilih; gagal -> 
       if(e&&(e.unsupported||e.voiceErr)){toast("Pocket di perangkat: "+devMsg(e)+". Kalimat ini dibuat di server.");setWhere(v,"di server (belum didukung di perangkat)")}   // bukan kegagalan perangkat: centang tetap aktif
       else pocketDevFail(e)}
     else if(v.engine==="supertonic")superDevFail(e)
-    else{locBad[v.engine]=true;toast("Di perangkat gagal, pakai server"+(e&&e.message?" ("+String(e.message).slice(0,60)+")":""))}
+    else{locBad[v.engine]=true;try{console.error("["+v.engine+" di perangkat] gagal:",e)}catch(x){}toast("Di perangkat gagal ("+v.engine+"), pakai server"+(e&&e.message?": "+String(e.message).replace(/\s+/g," ").slice(0,200):"")+". Detail di Console (F12).")}
     return srv()})}
 var pocketSeen={en:1},superSeen=false;
 function devTag(v,lang){if(ENG_LANGS[v.engine])return ":"+engLang(v,lang)+(locOn(v.engine)&&!isCloneId(v.id)?":dev":"");return locOn(v.engine)?":dev":""}
@@ -870,7 +1850,14 @@ function piperAll(quiet){
 function mdlGet(){try{return JSON.parse(localStorage.getItem(KEY+"-mdl")||"{}")}catch(e){return {}}}
 function mdlMark(k){try{var o=mdlGet();if(!o[k]){o[k]=1;localStorage.setItem(KEY+"-mdl",JSON.stringify(o));setTimeout(loadInst,300)}}catch(e){}}
 function mdlKey(v){return v.engine==="pocket"?"pocket":v.engine==="supertonic"?"supertonic":"piper:"+v.id}
-function mdlLoad(v,on){   // model diunduh/dimuat di server, tanpa membuat suara
+function mdWhere(){var e=$("mdwhere");return e&&e.value==="server"?"server":"device"}
+function mk(k){return mdWhere()==="device"?"dev:"+k:k}   // penanda unduhan dibedakan: di browser vs di server
+function mdlLoad(v,on){   // model diunduh/dimuat, tanpa membuat suara; di browser atau di server sesuai pilihan "Simpan di"
+  if(mdWhere()==="device"){
+    if(v.engine==="piper")return piperDevDownload(v.id,on);
+    if(v.engine==="pocket")return pocketDevDownload(v.lang||"en",on).then(function(){});
+    if(v.engine==="supertonic")return superDevDownload(on);
+  }
   on("Mengunduh/memuat di server…");
   return srvPost("/api/tts/engine/preload",{engine:v.engine,voice:v.id,lang:v.lang}).then(function(){})}
 var mdBusy=false,mdWake=null;
@@ -878,6 +1865,7 @@ function mdSet(id,ok,where){var e=$(id);e.textContent=ok?"✓ sudah di "+(where|
 function mdStat(){
   var f=mdlGet();
   mdSet("mds-whisper",f["whisper:"+$("mdwm").value]);
+  if(mdWhere()==="device"){mdStatDevice(f);return mdStatWhisper()}
   ["piper","pocket","supertonic"].forEach(function(n){$("mds-"+n).textContent="memeriksa server…";$("mds-"+n).className="sub"});
   fetch("/api/tts/engine/status").then(function(r){return r.json()}).then(function(st){   // status Piper/Pocket di server
     if(st.error)throw 0;var pst=st.piper||{},pk=st.pocket||{};
@@ -885,6 +1873,17 @@ function mdStat(){
     var plg=$("mdpl").value;srv("mds-pocket",plg==="en"?pk.cached:!!f["pocket:"+plg],pk.installed,"pip install -U pocket-tts");
     srv("mds-piper",(pst.stored||[]).indexOf($("mdpv").value)>=0,pst.installed,"pip install piper-tts");
     var sp=st.supertonic||{};srv("mds-supertonic",!!sp.cached,sp.installed,"pip install supertonic")}).catch(function(){["piper","pocket","supertonic"].forEach(function(n){$("mds-"+n).textContent="server tidak merespons"})});
+  mdStatWhisper()}
+function cacheHas(name,sub){return window.caches?caches.open(name).then(function(c){return c.keys()}).then(function(ks){return ks.some(function(r){return r.url.indexOf(sub)>=0})}).catch(function(){return false}):Promise.resolve(false)}
+function mdStatDevice(f){   // status model di browser ini (dibaca dari cache browser)
+  var pl_=$("mdpl").value,b=POC_BUNDLE[pl_],pid=$("mdpv").value;
+  ["piper","pocket","supertonic"].forEach(function(n){$("mds-"+n).textContent="memeriksa browser…";$("mds-"+n).className="sub"});
+  if(b)cacheHas("pocket-tts-hf-v1","/onnx/"+b+"/voices.bin").then(function(ok){mdSet("mds-pocket",ok,"browser")});
+  else{$("mds-pocket").textContent="bahasa ini hanya di server";$("mds-pocket").className="sub"}
+  cacheHas("supertonic3-assets-v1",SUP_MODELS[supSrc()].base+"onnx/vocoder.onnx").then(function(ok){mdSet("mds-supertonic",ok,"browser")});
+  if(locMod.piper)locMod.piper.then(function(m){return m.stored()}).then(function(st){mdSet("mds-piper",st.indexOf(pid)>=0,"browser")}).catch(function(){mdSet("mds-piper",!!f["dev:piper:"+pid],"browser")});
+  else mdSet("mds-piper",!!f["dev:piper:"+pid],"browser")}
+function mdStatWhisper(){
   if(window.caches)caches.open("transformers-cache").then(function(c){return c.keys()}).then(function(ks){   // Whisper: cek langsung isi cache browser
     var wm=$("mdwm").value;
     mdSet("mds-whisper",ks.some(function(r){return r.url.indexOf("whisper-"+wm+"/")>=0&&/\.onnx/.test(r.url)}))}).catch(function(){})}
@@ -912,30 +1911,30 @@ function mdBulkRun(list){
       if(mdAbort)return;
       return mdlLoad({engine:"piper",id:x.id},function(t){var m=/(\d+)%/.exec(t),f=m?+m[1]/100:0;
         on("Piper "+(i+1)+"/"+list.length+" · "+x.id+(m?" · "+m[1]+"%":""),(i+f)/list.length*100)})
-        .then(function(){mdlMark("piper:"+x.id);done++},function(){fail++})})},Promise.resolve()).then(function(){
+        .then(function(){mdlMark(mk("piper:"+x.id));done++},function(){fail++})})},Promise.resolve()).then(function(){
       return (mdAbort?"Dibatalkan":"Selesai")+": "+done+" suara Piper terunduh"+(fail?", "+fail+" gagal":"")})})}
 function mdBulk(){
   if(mdBusy)return;
   var all=$("mdpscope").value==="all";
   $("mdmsg").textContent=all?"Memuat daftar suara Piper…":"Menyiapkan…";
   (all?piperAll(true):Promise.resolve()).then(function(){
-    var L=mainLang(),f=mdlGet(),list=ENG_VOICES.filter(function(x){return x.engine==="piper"&&!f["piper:"+x.id]&&(all||!L||vMatch(x,L))}),mb=0;
+    var L=mainLang(),f=mdlGet(),list=ENG_VOICES.filter(function(x){return x.engine==="piper"&&!f[mk("piper:"+x.id)]&&(all||!L||vMatch(x,L))}),mb=0;
     if(!list.length){$("mdmsg").textContent="Tidak ada suara Piper baru untuk diunduh.";return}
     list.forEach(function(x){mb+=piperMB(x.id)});
     var size=mb>=1024?(mb/1024).toFixed(1)+" GB":mb+" MB";
     function go(){
-      if(!confirm("Unduh "+list.length+" suara Piper (± "+size+")?\nSuara diunduh ke server (bukan ke perangkat ini) dan tab sebaiknya tetap terbuka. Bisa dibatalkan kapan saja."))return;
+      if(!confirm("Unduh "+list.length+" suara Piper (± "+size+")?\nSuara diunduh ke "+(mdWhere()==="device"?"browser ini":"server (bukan ke perangkat ini)")+" dan tab sebaiknya tetap terbuka. Bisa dibatalkan kapan saja."))return;
       mdBulkRun(list)}
     go()})}
 $("mdd-pall").onclick=mdBulk;
 $("mdcancel").onclick=function(){mdAbort=true;$("mdmsg").textContent="Membatalkan setelah suara yang sedang diunduh selesai…"};
 $("mdbtn").onclick=function(){mdPiperOpts();$("mdlg").showModal();mdStat()};
 $("mdclose").onclick=function(){$("mdlg").close()};
-$("mdpv").onchange=$("mdwm").onchange=mdStat;
-$("mdd-pocket").onclick=function(){var lg=$("mdpl").value;mdRun(lg==="en"?"pocket":"pocket:"+lg,"Pocket "+lg,function(on){return mdlLoad({engine:"pocket",id:"alba",lang:lg},on).then(function(){pocketSeen[lg]=1})})};
+$("mdpv").onchange=$("mdwm").onchange=$("mdwhere").onchange=mdStat;
+$("mdd-pocket").onclick=function(){var lg=$("mdpl").value;mdRun(mk(lg==="en"?"pocket":"pocket:"+lg),"Pocket "+lg,function(on){return mdlLoad({engine:"pocket",id:"alba",lang:lg},on).then(function(){if(mdWhere()==="server")pocketSeen[lg]=1})})};
 $("mdpl").onchange=function(){mdStat()};
-$("mdd-supertonic").onclick=function(){mdRun("supertonic","Supertonic",function(on){return mdlLoad({engine:"supertonic",id:"M1",lang:"en"},on).then(function(){superSeen=true})})};
-$("mdd-piper").onclick=function(){var id=$("mdpv").value;if(!id)return;mdRun("piper:"+id,"Piper "+id,function(on){return mdlLoad({engine:"piper",id:id},on)})};
+$("mdd-supertonic").onclick=function(){mdRun(mk("supertonic"),"Supertonic",function(on){return mdlLoad({engine:"supertonic",id:"M1",lang:"en"},on).then(function(){if(mdWhere()==="server")superSeen=true})})};
+$("mdd-piper").onclick=function(){var id=$("mdpv").value;if(!id)return;mdRun(mk("piper:"+id),"Piper "+id,function(on){return mdlLoad({engine:"piper",id:id},on)})};
 $("mdd-whisper").onclick=function(){var m=$("mdwm").value;mdRun("whisper:"+m,"Whisper "+m,function(on){
   podPct=function(x){on("Mengunduh model Whisper… "+x+"%")};on("Memuat model Whisper…");return podAsr(m,false)})};
 /* satu per satu (antrean) dan di-cache supaya kalimat berikutnya bisa disiapkan lebih dulu */
@@ -1008,7 +2007,7 @@ $("pipdev").onchange=function(){LOC.piper=this.checked;locBad.piper=false;lsSet(
 $("pocloc").onchange=function(){
   var box=this;
   if(!box.checked){LOC.pocket=false;locBad.pocket=false;lsSet("pocloc",0);setWhereTxt("Pocket: di server");toast("Pocket di server");voices();voices2();if(playing)speak();return}
-  if(!confirm("Jalankan Pocket di perangkat ini?\n\n• Model ±125-200 MB per bahasa diunduh ke browser (sekali saja lalu disimpan; sebaiknya lewat Wi-Fi).\n• Butuh RAM cukup dan browser modern (WebAssembly). Di HP lama bisa lambat atau gagal.\n• Bahasa tersedia di perangkat: Inggris, Jerman, Spanyol, Italia, Portugis, Prancis. Bahasa lain dan suara klon tetap di server.\n\nAplikasi menguji dulu di perangkat. Bila gagal, otomatis kembali ke server.")){box.checked=false;return}
+  toast("Pocket di perangkat: model ±125-200 MB per bahasa diunduh sekali ke browser (sebaiknya lewat Wi-Fi), lalu diuji. Bahasa di perangkat: Inggris, Jerman, Spanyol, Italia, Portugis. Bahasa lain dan suara klon tetap di server.",true);
   box.disabled=true;locBad.pocket=false;LOC.pocket=false;   // belum aktif sampai ujinya berhasil; selama uji, permintaan lewat server
   pocketDevTest().then(function(l){
     LOC.pocket=true;lsSet("pocloc",1);setWhereTxt("Pocket: ✅ berjalan di perangkat");pocDev.okShown=true;voices();voices2();
