@@ -1,10 +1,15 @@
 # Suara TTS (full-stack)
-Sumber: Teks, File (txt, md, pdf, epub, docx, html), Scan dokumen (kamera langsung atau galeri, OCR), Web Link, Berita (RSS), Podcast (RSS).
+Sumber: Teks, File (txt, md, pdf, epub, docx, html; dibaca di browser), Scan dokumen (kamera langsung atau galeri, OCR), Web Link, Berita (RSS), Podcast (RSS).
 
     npm install
     npm start
 
 Buka http://localhost:3000 (di Codespaces: tab Ports, port 3000).
+
+## Apa yang jalan di browser dan apa yang di server
+- **Di browser (tanpa server):** semua suara TTS (Piper, Pocket, Supertonic), transkripsi Whisper, **membaca file PDF/DOCX/EPUB/HTML/TXT/MD**, **romanisasi dan IPA**, dan OCR scan. Kodenya ada di `public/index.html` dan modul bersama `public/lib/` (`filetext.js`, `textfmt.js`, `phon.js`, `kana.js`, `hangul.js`, `pinyinipa.js`).
+- **Di server (karena CORS atau butuh ffmpeg):** RSS berita dan podcast, ekstraksi artikel web (Web Link), decode audio podcast (`/api/podcast/pcm`), terjemahan dan deteksi bahasa, kamus kata, dan unduh MP3 Google.
+- Library untuk file dan fonetik dimuat malas dari CDN (pdf.js, mammoth, JSZip, kuromoji, pinyin-pro, any-ascii, phonemizer) saat pertama dipakai, jadi butuh internet pada pemakaian pertama.
 
 ## Bahasa utama, terjemahan, dan sorotan
 
@@ -25,10 +30,9 @@ Di bawah **setiap kata** pada teks utama ada **romanisasi** (aksara non-Latin) d
 | Rusia, Yunani, Arab, Ibrani, Hindi, Thai, dll. | any-ascii | espeak-ng |
 | Bahasa beraksara Latin | - | espeak-ng |
 
-espeak-ng dipakai lewat paket `phonemizer` (WebAssembly). Paket opsional (`optionalDependencies`): kalau salah satu gagal terpasang, aplikasi tetap jalan dan hanya bagian itu yang kosong. Cek status dengan melihat log saat `npm start` atau buka `/api/phon/status`, dan lihat contoh hasil dengan `npm run phon:test`.
+espeak-ng dipakai lewat paket `phonemizer` (WebAssembly). **Semuanya dihitung di browser** (`public/lib/phon.js`); library dimuat dari CDN saat pertama dibutuhkan, dan bila salah satu gagal dimuat hanya bagian itu yang kosong (cek Console, awalan `[fonetik]`). Server tidak lagi punya `/api/phon`. `npm run phon:test` menjalankan modul yang sama di Node (butuh `npm install` untuk devDependencies).
 
-Catatan: kuromoji memuat kamus (~17 MB) sekali saat server start. Romanisasi Arab/Ibrani tanpa tanda vokal hanya berisi konsonan, dan Hindi/Thai lewat any-ascii hanya perkiraan.
-
+Catatan: kuromoji memuat kamus (~17 MB) sekali saat teks Jepang pertama kali dianotasi, lalu disimpan di cache browser. Romanisasi Arab/Ibrani tanpa tanda vokal hanya berisi konsonan, dan Hindi/Thai lewat any-ascii hanya perkiraan.
 
 ## Scan dokumen lewat kamera
 Menu **Scan dokumen** membuka kamera langsung di halaman (butuh HTTPS atau localhost, dan izin kamera). Ambil satu atau beberapa halaman, pilih bahasa teks, lalu OCR (tesseract.js) berjalan di browser. Tombol **Galeri** tetap tersedia, dan bila kamera tidak bisa dibuka, tombol foto memakai kamera bawaan perangkat.

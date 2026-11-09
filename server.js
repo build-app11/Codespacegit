@@ -1,13 +1,8 @@
 const express = require("express");
 const dns = require("dns").promises;
 const net = require("net");
-const multer = require("multer");
-const mammoth = require("mammoth");
-const AdmZip = require("adm-zip");
-const pdfParse = require("pdf-parse/lib/pdf-parse.js");
 const { JSDOM, VirtualConsole } = require("jsdom");
 const { Readability } = require("@mozilla/readability");
-const phon = require("./phon");
 const podcast = require("./podcast");
 const news = require("./news");
 const article = require("./article");
@@ -17,7 +12,6 @@ const os = require("os");
 const path = require("path");
 
 const app = express();
-const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 50 * 1024 * 1024 } });
 app.use(express.json({ limit: "1mb" }));
 app.use(express.static("public"));
 
@@ -189,50 +183,7 @@ app.post("/api/tts", async (req, res) => {
   } catch (e) { res.status(502).json({ error: e.message }); }
 });
 
-// EPUB: baca urutan bab (spine) lalu ambil teksnya
-function fromEpub(buf) {
-  const zip = new AdmZip(buf);
-  const read = (p) => { const e = zip.getEntry(p); return e ? e.getData().toString("utf8") : ""; };
-  const opfPath = (read("META-INF/container.xml").match(/full-path="([^"]+)"/) || [])[1];
-  if (!opfPath) throw new Error("EPUB tidak valid");
-  const opf = read(opfPath), dir = opfPath.includes("/") ? opfPath.replace(/[^/]+$/, "") : "";
-  const manifest = {};
-  (opf.match(/<item\b[^>]*>/g) || []).forEach((t) => {
-    const id = (t.match(/\bid="([^"]+)"/) || [])[1], href = (t.match(/\bhref="([^"]+)"/) || [])[1];
-    if (id && href) manifest[id] = href;
-  });
-  const parts = [];
-  for (const m of opf.matchAll(/<itemref\b[^>]*idref="([^"]+)"/g)) {
-    const href = manifest[m[1]];
-    if (!href) continue;
-    const html = read(dir + decodeURIComponent(href.split("#")[0]));
-    if (html) parts.push(...tf.domBlocks(new JSDOM(html.replace(/<style\b[\s\S]*?<\/style>/gi, ""), { virtualConsole: quietDom() }).window.document.body));
-  }
-  const dec = (x) => String(x || "").replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&#39;|&apos;/g, "'").trim();
-  const title = dec((opf.match(/<dc:title[^>]*>([^<]+)/) || [])[1]);
-  const author = dec((opf.match(/<dc:creator[^>]*>([^<]+)/) || [])[1]);
-  // halaman sampul sering hanya gambar: tulis judul dan penulis di awal supaya bagian depan buku tetap terbaca
-  const head = [title, author].filter((x) => x && !parts.slice(0, 5).some((p) => p.toLowerCase() === x.toLowerCase()));
-  return { title, text: head.concat(parts).join("\n") };
-}
-
-// File: PDF, DOCX, HTML, TXT, MD
-app.post("/api/file", upload.single("file"), wrap(async (req) => {
-  const f = req.file;
-  if (!f) throw new Error("File tidak ditemukan");
-  const name = f.originalname.replace(/\.\w+$/, "");
-  const ext = (f.originalname.split(".").pop() || "").toLowerCase();
-  let text = "";
-  if (ext === "pdf") text = tf.mergePdfPages((await pdfParse(f.buffer, { pagerender: tf.pdfPageText })).text);
-  else if (ext === "docx") text = tf.fromParagraphs((await mammoth.extractRawText({ buffer: f.buffer })).value);
-  else if (ext === "epub") { const r = fromEpub(f.buffer); text = r.text; if (r.title) return { title: r.title, text }; }
-  else if (ext === "html" || ext === "htm") text = fromHtml(f.buffer.toString("utf8")).text;
-  else if (ext === "txt" || ext === "md") text = tf.textToParas(f.buffer.toString("utf8"));
-  else throw new Error("Format ." + ext + " belum didukung");
-  text = text.trim();   // paragraf dipertahankan: satu "\n" per paragraf
-  if (!text) throw new Error("Tidak ada teks di file ini (mungkin PDF hasil scan, coba fitur Scan)");
-  return { title: name, text };
-}));
+// File PDF/DOCX/EPUB/HTML/TXT dibaca di browser (public/lib/filetext.js); server tidak lagi menerima unggahan file.
 
 // Terjemahan (endpoint web Google Translate, gratis tanpa API key, tidak resmi)
 async function gt(q, tl, dts) {
@@ -265,17 +216,7 @@ app.post("/api/detect", wrap(async (req) => {
   return { lang: l };
 }));
 
-// Fonetik per kata (lokal): tiap kalimat dikembalikan sebagai daftar segmen untuk ditampilkan di bawah tiap kata
-app.post("/api/phon", wrap(async (req) => {
-  const { texts, l, rm, ip } = req.body || {};
-  if (!Array.isArray(texts) || !texts.length || texts.length > 6) throw new Error("Permintaan tidak valid");
-  const L = String(l || ""), want = { rm: !!rm, ip: !!ip && !!L };
-  const r = await Promise.all(texts.map((t) => phon.analyzeWords(String(t), L, want).catch(() => null)));
-  return { items: r.map((ws) => (ws ? {
-    t: ws.map((x) => x.t), wl: ws.map((x) => (x.wl ? 1 : 0)),
-    rm: want.rm ? ws.map((x) => x.rm || "") : null, ip: want.ip ? ws.map((x) => x.ip || "") : null } : null)) };
-}));
-app.get("/api/phon/status", wrap(async () => phon.status()));
+// Romanisasi dan IPA dihitung di browser (public/lib/phon.js).
 
 // Kamus: FreeDictionaryAPI.com (data Wiktionary), sama dengan pop up kamus di player-video
 const FD_URL = "https://freedictionaryapi.com/api/v1/entries/";
@@ -324,13 +265,12 @@ app.get("/api/word", wrap(async (req) => {
   const fixed = { iw: "he", jw: "jv", in: "id" };
   let lc = String(lang).split(/[-_]/)[0].toLowerCase(); lc = fixed[lc] || lc;
   const tc = String(tl).split(/[-_]/)[0].toLowerCase(), codes = tc === "zh" ? ["cmn", "zh"] : [tc];
-  const [pw, ps, fd] = await Promise.all([
-    phon.analyze(w, lang, { rm: true, ip: true }).catch(() => ({ rm: "", ip: "" })),
-    s && s.length <= 400 ? phon.analyze(s, lang, { rm: true, ip: false }).catch(() => ({ rm: "", ip: "" })) : { rm: "", ip: "" },
+  // romanisasi/IPA kata dan kalimat ditambahkan di browser (public/lib/phon.js)
+  const [fd] = await Promise.all([
     (lc ? fdLookup(String(w).toLowerCase().replace(/[‘’]/g, "'"), lc) : Promise.resolve(null)).then((r) => ({ r }), (e) => ({ err: e.message })),
   ]);
   const res = { word: w, translation: segs(d), alts: [], examples: [], sentence: s || "", sentenceTr: sd ? segs(sd) : "",
-    translit: pw.rm, sentenceTranslit: ps.rm, ipa: pw.ip ? ["/" + pw.ip + "/"] : [], entries: [], arti: [], base: "", dictErr: fd.err || "" };
+    translit: "", sentenceTranslit: "", ipa: [], entries: [], arti: [], base: "", dictErr: fd.err || "" };
   if (fd.r) {
     res.base = fd.r.word;
     res.arti = fdArti(fd.r.entries, codes);
@@ -360,5 +300,4 @@ app.get("/api/word", wrap(async (req) => {
 
 app.listen(process.env.PORT || 3000, () => {
   console.log("Buka http://localhost:3000");
-  phon.status().then((st) => console.log("Fonetik:", JSON.stringify(st))).catch(() => {});   // sekaligus memanaskan kamus
 });

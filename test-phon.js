@@ -1,5 +1,5 @@
 // Jalankan: npm run phon:test  (setelah npm install). Menampilkan mesin yang aktif dan contoh hasil per bahasa.
-const phon = require("./phon");
+const phon = require("./public/lib/phon");
 const samples = [
   ["en", "Hello, this is a pronunciation test."], ["de", "Das ist ein schöner Tag."], ["fr", "Bonjour tout le monde."],
   ["es", "¿Cómo estás hoy?"], ["id", "Selamat pagi, apa kabar?"], ["ru", "Привет, как дела?"],

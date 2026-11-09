@@ -10,22 +10,20 @@
     "article:test": "node test-article.js"
   },
   "dependencies": {
-    "adm-zip": "^0.5.14",
     "@mozilla/readability": "^0.5.0",
     "express": "^4.19.2",
-    "jsdom": "^24.1.0",
-    "mammoth": "^1.8.0",
-    "multer": "^1.4.5-lts.1",
-    "pdf-parse": "^1.1.1"
+    "jsdom": "^24.1.0"
   },
   "optionalDependencies": {
-    "kuromoji": "^0.1.2",
-    "pinyin-pro": "^3.0.0",
-    "any-ascii": "^0.3.0",
-    "phonemizer": "^1.2.1",
     "ffmpeg-static": "^5.2.0"
   },
   "engines": {
     "node": ">=18"
+  },
+  "devDependencies": {
+    "kuromoji": "^0.1.2",
+    "pinyin-pro": "^3.0.0",
+    "any-ascii": "^0.3.0",
+    "phonemizer": "^1.2.1"
   }
 }
