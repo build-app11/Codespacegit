@@ -1251,6 +1251,12 @@ async function runGenerationPipeline(voiceName, chunks, framesAfterEos) {
 }
 
 </script>
+<script src="lib/kana.js"></script>
+<script src="lib/hangul.js"></script>
+<script src="lib/pinyinipa.js"></script>
+<script src="lib/textfmt.js"></script>
+<script src="lib/phon.js"></script>
+<script src="lib/filetext.js"></script>
 <script>
 (function(){
 var KEY="suara-lib-v2",PK="suara-prog-v2",CH=2000,items=[],prog={},tab="all";
@@ -1418,6 +1424,14 @@ function applyPh(k){
 function phRefresh(){var b=$("rbody");b.classList.toggle("phon",phOn.rm||phOn.ip);
   [].forEach.call(b.querySelectorAll(".s"),function(sp){applyPh(+sp.dataset.i)})}
 /* ambil anotasi untuk 3 kalimat sekaligus, 8 kalimat ke depan */
+/* Romanisasi + IPA dihitung di browser (public/lib/phon.js); bentuk hasilnya sama dengan yang dulu dikirim server. */
+function phonItems(texts,L,rm,ip){
+  if(!self.Phon)return Promise.reject(new Error("modul fonetik belum dimuat"));
+  var want={rm:!!rm,ip:!!ip&&!!L};
+  return Promise.all(texts.map(function(t){return Phon.analyzeWords(String(t),String(L||""),want).catch(function(){return null})})).then(function(r){
+    return {items:r.map(function(ws){return ws?{t:ws.map(function(x){return x.t}),wl:ws.map(function(x){return x.wl?1:0}),
+      rm:want.rm?ws.map(function(x){return x.rm||""}):null,ip:want.ip?ws.map(function(x){return x.ip||""}):null}:null})}})}
+function phonOne(text,L,want){if(!self.Phon||!text)return Promise.resolve({rm:"",ip:""});return Phon.analyze(text,String(L||""),want).catch(function(){return {rm:"",ip:""}})}
 function warmPh(){
   if(!cur||phBusy||(!phOn.rm&&!phOn.ip)||!sents.length)return;
   var it=cur,L=mainLang(),tok=mtTok,idx=[],lim=Math.min(sents.length,pos+8);
@@ -1426,9 +1440,9 @@ function warmPh(){
   if(!idx.length)return;
   var needRm=phOn.rm,needIp=phOn.ip&&!!L,keys=idx.map(phKey),texts=idx.map(dsent);
   phBusy=true;
-  fetch("/api/phon",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({texts:texts,l:L,rm:needRm,ip:needIp})})
-    .then(function(r){return r.json()}).then(function(d){
-      phBusy=false;if(d.error)throw new Error(d.error);
+  phonItems(texts,L,needRm,needIp)
+    .then(function(d){
+      phBusy=false;
       idx.forEach(function(k,j){var r=d.items&&d.items[j],c=phCache[keys[j]];
         if(!r){phCache[keys[j]]={t:[],wl:[],bad:true,rm:[],ip:[]};return}
         if(!c||c.t.join("")!==r.t.join(""))c=phCache[keys[j]]={t:r.t,wl:r.wl};
@@ -1839,7 +1853,12 @@ function memRelease(){var freed=[];
 function devMsg2(e){return String((e&&e.message)||e||"penyebab tidak diketahui").replace(/\s+/g," ").slice(0,220)}
 function devJob(v,text,lang){   // semua mesin berjalan di browser (WebAssembly); tidak ada server. Gagal -> pesan jelas lewat engFail.
   var run;
-  if(v.engine==="piper")run=piperLocalGen(v.id,text);
+  if(v.engine==="piper")run=piperLocalGen(v.id,text).catch(function(e){
+    // Suara Piper tertentu (mis. Arab) gagal di simpul Gather bila fonem di luar daftar simbolnya muncul (angka, huruf Latin, tanda kurung). Coba sekali lagi tanpa itu.
+    if(!/Gather|out of data bounds|indices element/i.test(String((e&&e.message)||e)))throw e;
+    var t2=String(text).replace(/[0-9\u0660-\u0669\u06F0-\u06F9A-Za-z"“”«»()\[\]{}<>@#%^&*_+=|\\\/~`]/g," ").replace(/\s+/g," ").trim();
+    if(!t2||t2===text||!/[\p{L}]/u.test(t2))throw e;
+    return piperLocalGen(v.id,t2)});
   else if(v.engine==="pocket")run=pocketLocalGen(v.id,text,engLang(v));
   else if(v.engine==="supertonic")run=superLocalGen(v.id,text,engLang(v,lang));
   else return Promise.reject(new Error("mesin suara tidak dikenal: "+v.engine));
@@ -1848,6 +1867,7 @@ function devJob(v,text,lang){   // semua mesin berjalan di browser (WebAssembly)
   return run.then(function(b){setWhere(v,"✅ berjalan di browser");return b},function(e){
     try{console.error("["+v.engine+" di browser] gagal:",e)}catch(x){}
     var msg=devMsg2(e);if(v.engine==="pocket"&&e&&e.unsupported)msg+=". Pilih suara Supertonic (31 bahasa) atau Piper untuk bahasa ini";
+    if(v.engine==="piper"&&/Gather|out of data bounds|indices element/i.test(msg))msg="suara "+v.id+" tidak cocok dengan teks ini (fonem di luar simbol model). Coba suara Piper lain untuk bahasa ini, atau Supertonic";
     setWhere(v,"⚠️ gagal");throw new Error(({piper:"Piper",pocket:"Pocket",supertonic:"Supertonic"}[v.engine]||v.engine)+" di browser: "+msg)})}
 function devTag(v,lang){return ENG_LANGS[v.engine]?":"+engLang(v,lang):""}
 var PIPER_VOICES_URL="https://huggingface.co/rhasspy/piper-voices/resolve/main/voices.json",piperCat=null;
@@ -2153,19 +2173,27 @@ function dTab(t){
   document.querySelectorAll("#pop .dtab").forEach(function(b){b.setAttribute("aria-selected",String(b.dataset.d===t))});
   if(t==="tr")dTranslate();dRender()}
 document.querySelectorAll("#pop .dtab").forEach(function(b){b.onclick=function(){dTab(b.dataset.d)}});
+function applyWordPh(st){   // romanisasi/IPA lokal (browser) menimpa hasil kamus, kapan pun yang datang belakangan
+  var ph=st.ph;if(!ph||!st.d)return;
+  if(ph.ip){st.d.ipa=["/"+ph.ip+"/"];$("pip").textContent=st.d.ipa.join("  ")}
+  if(ph.rm){st.d.translit=ph.rm;$("prom").textContent="Romanisasi: "+ph.rm;$("prom").hidden=false}
+  if(ph.srm&&st.d.sentenceTranslit!==ph.srm){st.d.sentenceTranslit=ph.srm;dRender()}}
 function showWord(w,i){
   stop();setPos(i);popI=i;popW=w;var tok=++ptok;var st=dst={w:w,tab:"en",tr:{},d:null,trStarted:false};
   $("pw").textContent=w;$("pip").textContent="";$("prom").hidden=true;$("pdid").textContent="Memuat…";$("parti").textContent="ARTI";
   $("pbody").textContent="";$("pbody").appendChild(dmk("div","kmsg","Memuat arti…"));
   document.querySelectorAll("#pop .dtab").forEach(function(b){b.setAttribute("aria-selected",String(b.dataset.d==="en"))});
   $("pscroll").scrollTop=0;$("pop").classList.add("open");
+  var Lw=mainLang(),sw=dsent(i);
+  phonOne(w,Lw,{rm:true,ip:true}).then(function(ph){if(tok!==ptok)return;st.ph=st.ph||{};st.ph.rm=ph.rm;st.ph.ip=ph.ip;applyWordPh(st)});
+  if(sw&&sw.length<=400)phonOne(sw,Lw,{rm:true,ip:false}).then(function(ph){if(tok!==ptok)return;st.ph=st.ph||{};st.ph.srm=ph.rm;applyWordPh(st)});
   fetch("/api/word?w="+encodeURIComponent(w)+"&s="+encodeURIComponent(dsent(i))+"&tl="+encodeURIComponent($("tl").value)+"&l="+encodeURIComponent(mainLang()))
     .then(function(r){return r.json()}).then(function(d){
       if(tok!==ptok)return;if(d.error)throw new Error(d.error);
       st.d=d;$("pw").textContent=d.base||w;
       $("pip").textContent=d.ipa&&d.ipa.length?d.ipa.join("  "):"";
       if(d.translit){$("prom").textContent="Romanisasi: "+d.translit;$("prom").hidden=false}
-      dArti();dRender()})
+      applyWordPh(st);dArti();dRender()})
     .catch(function(e){if(tok!==ptok)return;$("pdid").textContent="-";$("pbody").textContent="";$("pbody").appendChild(dmk("div","kmsg","Gagal: "+e.message))});
 }
 $("pclose").onclick=function(){ptok++;$("pop").classList.remove("open")};
@@ -2504,7 +2532,9 @@ $("menu").onclick=function(e){var t=e.target.dataset.add;if(!t)return;$("menu").
   else if(t==="scan")openScan();else if(t==="pod")openPod();else if(t==="news")openNews();else $("file").click()};
 $("dcancel").onclick=function(){$("dlg").close()};
 $("dsave").onclick=function(){var b=$("dbody").value.trim();if(!b){$("dbody").focus();return}add($("dtitle").value.trim()||b.slice(0,40),b);$("dlg").close()};
-$("file").onchange=function(){var f=this.files[0];this.value="";if(!f)return;var fd=new FormData();fd.append("file",f);remote("/api/file",f.name,{method:"POST",body:fd})};
+$("file").onchange=function(){var f=this.files[0];this.value="";if(!f)return;   // dibaca di browser (pdf.js, mammoth, JSZip), tidak diunggah ke server
+  toast("Memproses…",true);
+  FileText.read(f,function(i,n){toast("Membaca halaman "+i+"/"+n+"…",true)}).then(function(r){add(r.title||f.name.replace(/\.\w+$/,""),r.text)}).catch(function(e){toast("Gagal: "+e.message)})};
 /* ---------- Scan dokumen: foto langsung lewat kamera ---------- */
 var camStream=null,camFacing="environment",pages=[];
 function camStop(){if(camStream){camStream.getTracks().forEach(function(t){t.stop()});camStream=null}$("cam").srcObject=null}
